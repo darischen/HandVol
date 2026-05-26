@@ -11,7 +11,6 @@ from handvol.capture import GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
 from handvol.state import GestureStateMachine, State, Event
 
-import os
 import subprocess
 import sys
 
