@@ -42,10 +42,16 @@ Save it as `models/gesture_recognizer.task`.
 python handvol.pyw
 ```
 
-By default HandVol runs **headless** (no preview window). Quit any time
-with **Ctrl+Shift+Q**. To see the live camera feed, current state,
-detected gesture, and system volume, pass `--show` and press **Esc** to
-quit.
+HandVol installs a **system-tray icon** (bottom-right, in the hidden-icon
+overflow on a fresh Windows install — drag it onto the taskbar to pin).
+
+- **Left-click the tray icon** → toggle the OpenCV preview window on/off.
+- **Right-click** → menu with *Show preview* (checked when visible) and *Quit*.
+- **Esc** inside the preview window also hides it.
+- To quit, use the tray's *Quit* item (or kill `pythonw.exe` from Task Manager).
+
+By default it starts tray-only (no window). Pass `--show` to launch with
+the preview already open.
 
 ### Useful flags
 
@@ -56,7 +62,7 @@ quit.
 | `--cam 0` | Webcam index, if you have more than one. |
 | `--debug` | Print frame-by-frame state and scrub values. |
 | `--no-audio` | Skip all pycaw/media calls — overlay only, for tuning. |
-| `--show` | Show the OpenCV preview window (Esc to quit). |
+| `--show` | Start with the preview window already open (otherwise tray-only). |
 
 ## Launch silently at startup
 
@@ -107,5 +113,6 @@ webcam.
 - **Media key does nothing** — the `keyboard` library needs admin on
   some Windows configs. Run from an elevated terminal, or `pyautogui`
   will be tried as fallback if installed.
-- **Headless quit hotkey unresponsive** — same admin caveat. Kill
-  `pythonw.exe` via Task Manager if needed.
+- **Tray icon missing** — Windows hides new tray icons in the overflow
+  by default. Click the `^` chevron in the taskbar and drag the HandVol
+  icon onto the visible area to pin it.
