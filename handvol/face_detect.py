@@ -17,7 +17,7 @@ FACE_MODEL_FILENAME = "face_landmarker.task"
 _DEFAULT_MODEL_PATH = (
     Path(__file__).resolve().parent.parent / "models" / FACE_MODEL_FILENAME
 )
-MAX_FACES = 3  # Spec: if any face in frame matches, allow gestures.
+MAX_FACES = 3  # Detect up to 3; capture.py picks the largest for dlib identity.
 
 
 def landmarks_to_bbox(face_landmarks, frame_shape):

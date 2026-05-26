@@ -1,13 +1,14 @@
 """On-disk face identity profile.
 
-Stores N L2-normalized embeddings produced by `face_detect.landmarks_to_embedding`.
-`matches()` returns the maximum cosine similarity across all stored
-captures, plus a boolean against `MATCH_THRESHOLD`. Storage is a single
-`.npz` file under data/face_profile.npz (gitignored).
+Stores N L2-normalized 128-D embeddings produced by
+`face_identity.compute_identity_embedding` (dlib `face_recognition`
+ResNet-34). `matches()` returns the maximum cosine similarity across
+all stored captures, plus a boolean against `MATCH_THRESHOLD`. Storage
+is a single `.npz` file under `data/face_profile.npz` (gitignored).
 
-The threshold is high because cosine similarity on translation+scale
-normalized landmark vectors of the same identity tends to sit well above
-0.9; cross-identity similarity drops sharply. Tune empirically in Task 11.
+`MATCH_THRESHOLD` is tuned empirically during manual end-to-end
+testing — same-person dlib similarity typically sits at 0.92-0.97;
+different-person similarity drops to 0.40-0.75.
 """
 from __future__ import annotations
 

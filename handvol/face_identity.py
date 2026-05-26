@@ -10,6 +10,8 @@ worker that throttles dlib calls to ~3 Hz on a background thread.
 from __future__ import annotations
 
 import logging
+import threading
+import time as _time
 
 import face_recognition
 import numpy as np
@@ -52,10 +54,6 @@ def compute_identity_embedding(rgb_frame, bbox):
     return emb / norm
 
 
-import threading
-import time as _time
-
-
 class IdentityEncoder:
     """Async, coalescing-rate-limited dlib face encoder.
 
@@ -81,6 +79,7 @@ class IdentityEncoder:
         self._latest_embedding = None
         self._latest_ts_ns = 0
         self._thread = None
+        self._warned_no_face = False  # rate-limit the "dlib found no face" log
 
     def start(self):
         if self._thread is not None:
@@ -126,15 +125,25 @@ class IdentityEncoder:
                     self._in_flight = False
                 continue
             rgb, bbox = job
+            raised = False
             try:
                 emb = self._encoding_fn(rgb, bbox)
             except Exception:
                 _log.exception("IdentityEncoder: encoding_fn raised")
                 emb = None
+                raised = True
             if emb is not None:
                 with self._lock:
                     self._latest_embedding = emb
                     self._latest_ts_ns = _time.monotonic_ns()
+                    self._warned_no_face = False  # reset on success
+            elif not raised and not self._warned_no_face:
+                _log.warning(
+                    "IdentityEncoder: encoding_fn returned no embedding "
+                    "(dlib could not find a face in the given crop). "
+                    "Suppressing further warnings until a successful encode."
+                )
+                self._warned_no_face = True
             with self._lock:
                 self._in_flight = False
 

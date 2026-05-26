@@ -141,6 +141,14 @@ class GestureSource:
             self._embedder.open()
             self._identity.start()
         except Exception:
+            # Release everything that may have been partially set up before
+            # we re-raise; otherwise the caller can't retry without leaking
+            # the camera / MediaPipe / worker thread handles.
+            self._identity.stop()
+            self._embedder.close()
+            if self._recognizer is not None:
+                self._recognizer.close()
+                self._recognizer = None
             self._cap.release()
             self._cap = None
             raise
