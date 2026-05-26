@@ -52,10 +52,11 @@ def _load_font(size):
     return font
 
 
-def make_volume_image(level):
+def make_volume_image(level, dimmed=False):
     """Render the integer volume (0-100) centered on a transparent square.
     Sized so that 3 digits ('100') still fit; 1- and 2-digit values use a
-    larger glyph for legibility at 16x16."""
+    larger glyph for legibility at 16x16. When dimmed=True, the text is
+    drawn in semi-transparent gray to signal a paused state."""
     img = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     text = str(int(level))
@@ -68,14 +69,17 @@ def make_volume_image(level):
     h = bbox[3] - bbox[1]
     x = (ICON_SIZE - w) // 2 - bbox[0]
     y = (ICON_SIZE - h) // 2 - bbox[1]
-    d.text((x, y), text, fill=(255, 255, 255, 255), font=font)
+    fill = (128, 128, 128, 180) if dimmed else (255, 255, 255, 255)
+    d.text((x, y), text, fill=fill, font=font)
     return img
 
 
-def capture_loop(args, show_evt, quit_evt, icon):
+def capture_loop(args, show_evt, worker_stop, icon):
     """Runs on a worker thread. Owns the camera, the model, and (when toggled
     on) the OpenCV window. cv2 + overlay are imported here so we only pay the
-    cost when the worker actually starts."""
+    cost when the worker actually starts. worker_stop is signaled both for
+    full app quit and for pause — the loop exits the GestureSource context
+    cleanly either way, releasing the camera."""
     import cv2
     from handvol.overlay import (
         draw_state, draw_gesture, draw_volume, draw_fps,
@@ -92,7 +96,7 @@ def capture_loop(args, show_evt, quit_evt, icon):
     last_rendered_vol = None
 
     with GestureSource(cam_index=args.cam) as source:
-        while not quit_evt.is_set():
+        while not worker_stop.is_set():
             frame, latest = source.read()
             if frame is None:
                 break
@@ -205,9 +209,27 @@ def main():
         )
 
     show_evt = threading.Event()
-    quit_evt = threading.Event()
     if args.show:
         show_evt.set()
+
+    # Mutable holders so the closures below can rebuild the worker on resume
+    # without nonlocal gymnastics.
+    paused = {"v": False}
+    worker_state = {"stop": None, "thread": None}
+
+    def start_worker():
+        worker_state["stop"] = threading.Event()
+        worker_state["thread"] = threading.Thread(
+            target=capture_loop,
+            args=(args, show_evt, worker_state["stop"], icon),
+            daemon=True)
+        worker_state["thread"].start()
+
+    def stop_worker():
+        if worker_state["stop"] is not None:
+            worker_state["stop"].set()
+        if worker_state["thread"] is not None:
+            worker_state["thread"].join(timeout=2.0)
 
     def on_toggle(icon, item):
         if show_evt.is_set():
@@ -215,13 +237,30 @@ def main():
         else:
             show_evt.set()
 
+    def on_pause(icon, item):
+        if paused["v"]:
+            paused["v"] = False
+            start_worker()
+        else:
+            paused["v"] = True
+            # Close the preview too — camera is going away anyway.
+            show_evt.clear()
+            stop_worker()
+            try:
+                vol = 0 if args.no_audio else int(round(audio.get_volume()))
+            except Exception:
+                vol = 0
+            icon.icon = make_volume_image(vol, dimmed=True)
+
     def on_quit(icon, item):
-        quit_evt.set()
+        stop_worker()
         icon.stop()
 
     menu = Menu(
         MenuItem("Show preview", on_toggle, default=True,
                  checked=lambda item: show_evt.is_set()),
+        MenuItem("Pause", on_pause,
+                 checked=lambda item: paused["v"]),
         MenuItem("Quit", on_quit),
     )
     # Initial glyph: show the current volume immediately so the icon isn't
@@ -233,17 +272,13 @@ def main():
         initial_vol = 0
     icon = Icon("handvol", make_volume_image(initial_vol), "HandVol", menu)
 
-    worker = threading.Thread(target=capture_loop,
-                              args=(args, show_evt, quit_evt, icon),
-                              daemon=True)
-    worker.start()
+    start_worker()
 
     # pystray blocks the main thread running the Win32 message pump until
     # icon.stop() is called.
     icon.run()
 
-    quit_evt.set()
-    worker.join(timeout=2.0)
+    stop_worker()
 
 
 if __name__ == "__main__":
