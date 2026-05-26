@@ -39,11 +39,13 @@ Save it as `models/gesture_recognizer.task`.
 ## Run
 
 ```powershell
-python -m handvol.main
+python handvol.pyw
 ```
 
-A window opens showing the live camera feed, current state, detected
-gesture, and system volume. Press **Esc** to quit.
+By default HandVol runs **headless** (no preview window). Quit any time
+with **Ctrl+Shift+Q**. To see the live camera feed, current state,
+detected gesture, and system volume, pass `--show` and press **Esc** to
+quit.
 
 ### Useful flags
 
@@ -54,7 +56,7 @@ gesture, and system volume. Press **Esc** to quit.
 | `--cam 0` | Webcam index, if you have more than one. |
 | `--debug` | Print frame-by-frame state and scrub values. |
 | `--no-audio` | Skip all pycaw/media calls — overlay only, for tuning. |
-| `--headless` | Run with no window. Quit with **Ctrl+Shift+Q**. |
+| `--show` | Show the OpenCV preview window (Esc to quit). |
 
 ## Launch silently at startup
 
@@ -75,8 +77,8 @@ handvol/
 ├── state.py      IDLE / SCRUB / IDLE_COOLDOWN debouncer
 ├── audio.py      pycaw wrapper (volume + mute)
 ├── media.py      Media play/pause key
-├── overlay.py    OpenCV drawing helpers
-└── main.py       Glue: argparse, loop, event dispatch
+└── overlay.py    OpenCV drawing helpers
+handvol.pyw       Entry point: argparse, loop, event dispatch
 tests/
 └── test_scrubber.py   Unit tests for scrubber + state machine
 ```

@@ -2,14 +2,8 @@ import argparse
 import time
 from collections import deque
 
-import cv2
-
 from handvol import audio, media
 from handvol.capture import GestureSource, MODEL_PATH
-from handvol.overlay import (
-    draw_state, draw_gesture, draw_volume, draw_fps,
-    draw_landmarks, draw_scrub_indicator,
-)
 from handvol.scrubber import VolumeScrubber
 from handvol.state import GestureStateMachine, State, Event
 
@@ -28,13 +22,14 @@ def parse_args():
                    help="Print frame-by-frame state + values")
     p.add_argument("--no-audio", action="store_true",
                    help="Skip pycaw/media calls — overlay only (useful for tuning)")
-    p.add_argument("--headless", action="store_true",
-                   help="Run without the OpenCV window. Quit with Ctrl+Shift+Q.")
+    p.add_argument("--show", action="store_true",
+                   help="Show the OpenCV preview window. Default is headless; quit with Ctrl+Shift+Q.")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
+    show_window = args.show
 
     if not MODEL_PATH.exists():
         raise SystemExit(
@@ -50,8 +45,17 @@ def main():
     last_t = time.monotonic()
     last_state = None
 
+    cv2 = None
+    if show_window:
+        import cv2 as _cv2
+        from handvol.overlay import (
+            draw_state, draw_gesture, draw_volume, draw_fps,
+            draw_landmarks, draw_scrub_indicator,
+        )
+        cv2 = _cv2
+
     quit_flag = {"stop": False}
-    if args.headless:
+    if not show_window:
         try:
             import keyboard as _kb
             _kb.add_hotkey("ctrl+shift+q", lambda: quit_flag.update(stop=True))
@@ -104,8 +108,8 @@ def main():
             except Exception:
                 vol_now = None
 
-            # --- Overlay (skipped in headless to save CPU) ---
-            if not args.headless:
+            # --- Overlay (skipped when headless to save CPU) ---
+            if show_window:
                 if landmarks is not None:
                     draw_landmarks(frame, landmarks)
                 draw_state(frame, machine.state.value)
@@ -132,14 +136,14 @@ def main():
                       f"smoothed_y={scrubber.smoothed_y:.3f} "
                       f"vol={vol_now if vol_now is not None else 'n/a'}")
 
-            if args.headless:
-                if quit_flag["stop"]:
-                    break
-            else:
+            if show_window:
                 if cv2.waitKey(1) & 0xFF == 27:  # Esc to quit
                     break
+            else:
+                if quit_flag["stop"]:
+                    break
 
-    if not args.headless:
+    if show_window:
         cv2.destroyAllWindows()
 
 
