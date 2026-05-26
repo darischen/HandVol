@@ -121,27 +121,26 @@ def capture_loop(args, show_evt, worker_stop, icon, profile_state):
                 break
 
             if latest is None:
-                gesture, score, landmarks, face_embs, face_lms = (
-                    "None", 0.0, None, [], []
+                gesture, score, landmarks, face_lms, identity_emb = (
+                    "None", 0.0, None, [], None
                 )
             else:
-                gesture, score, landmarks, face_embs, face_lms = latest
+                gesture, score, landmarks, face_lms, identity_emb = latest
 
             profile = profile_state["profile"]
             max_similarity = None  # for the overlay readout
             if profile is None or profile.capture_count == 0:
                 recognized = False
-            elif not face_embs:
+            elif identity_emb is None:
                 no_face_streak += 1
                 recognized = last_recognized if no_face_streak < NO_FACE_GRACE_FRAMES else False
             else:
                 no_face_streak = 0
-                # Spec: if ANY face in frame matches the profile, unlock.
-                # Compute max similarity across all detected faces so we
-                # can show the user the score for tuning purposes.
-                sims = [profile.matches(e)[1] for e in face_embs]
-                max_similarity = max(sims)
-                recognized = max_similarity >= MATCH_THRESHOLD
+                # Largest-face-only rule from v2 design: profile.matches
+                # is invoked on the single dlib embedding produced by the
+                # IdentityEncoder for the most prominent face in frame.
+                is_match, max_similarity = profile.matches(identity_emb)
+                recognized = is_match
             last_recognized = recognized
 
             # Drop gesture if the user is not recognized; the state machine
@@ -283,6 +282,16 @@ def main():
             f"Missing face landmarker model at {face_model_path}\n"
             "Download from: https://storage.googleapis.com/mediapipe-models/"
             "face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+        )
+
+    try:
+        import face_recognition  # noqa: F401
+    except ImportError as exc:
+        raise SystemExit(
+            "Missing dependency: face_recognition\n"
+            f"Underlying error: {exc}\n"
+            "Install a prebuilt dlib wheel for Windows, then run "
+            "`pip install -r requirements.txt`. See README for details."
         )
 
     show_evt = threading.Event()
