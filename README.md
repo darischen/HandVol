@@ -70,7 +70,7 @@ overflow on a fresh Windows install — drag it onto the taskbar to pin).
 - **Left-click the tray icon** → toggle the OpenCV preview window on/off.
 - **Right-click** → menu with *Show preview* (checked when visible),
   *Pause* (releases the camera; useful before joining a virtual meeting),
-  and *Quit*.
+  *Calibrate face...* (launches the face calibration flow), and *Quit*.
 - **Esc** inside the preview window also hides it.
 - To quit, use the tray's *Quit* item (or kill `pythonw.exe` from Task Manager).
 
@@ -88,6 +88,27 @@ the preview already open.
 | `--no-audio` | Skip all pycaw/media calls — overlay only, for tuning. |
 | `--show` | Start with the preview window already open (otherwise tray-only). |
 
+## Face recognition (gesture lock)
+
+HandVol gates gesture control behind face recognition: only the
+calibrated user's face will unlock gestures. With no profile, or when
+the user's face is not visible, gestures are ignored and the preview
+overlay shows **LOCKED** (red) or **NO PROFILE** (gray) in the top
+right. When you are recognized, it shows **UNLOCKED** (green).
+
+**Calibrate via the tray menu** — right-click the HandVol icon and
+choose **Calibrate face...**, or run `python -m handvol.calibration`
+from the command line. You will be walked through ~20 short poses
+(looking up/down/left/right, diagonals, profile views, two close/far
+variations). Hold each pose at a neutral resting expression for ~2
+seconds. Headphones are fine for most poses; you will be prompted to
+briefly remove over-ear headphones for the two profile captures so the
+ear/jawline is visible.
+
+The face profile is stored at `data/face_profile.npz` and is **never**
+committed to git (the `data/` directory is gitignored). Face embeddings
+are biometric data — keep the file local.
+
 ## Launch silently at startup
 
 1. Press `Win+R`, type `shell:startup`, Enter.
@@ -100,16 +121,21 @@ The `.vbs` shim invokes `pythonw.exe` so no console window flashes.
 
 ```
 handvol/
-├── capture.py    Webcam + MediaPipe LIVE_STREAM + custom OK/side-thumb detection
-├── scrubber.py   Pure-logic volume scrubber (anchor + EMA)
-├── state.py      IDLE / SCRUB / IDLE_COOLDOWN debouncer
-├── audio.py      pycaw wrapper (volume + mute)
-├── media.py      Media play/pause and track-skip keys
-├── spotify.py    Focus/launch/close Spotify via Win32
-└── overlay.py    OpenCV drawing helpers
-handvol.pyw       Entry point: argparse, tray icon, capture loop, event dispatch
+├── capture.py        Webcam + MediaPipe LIVE_STREAM + custom OK/side-thumb detection
+├── scrubber.py       Pure-logic volume scrubber (anchor + EMA)
+├── state.py          IDLE / SCRUB / IDLE_COOLDOWN debouncer
+├── audio.py          pycaw wrapper (volume + mute)
+├── media.py          Media play/pause and track-skip keys
+├── spotify.py        Focus/launch/close Spotify via Win32
+├── overlay.py        OpenCV drawing helpers
+├── face_detect.py    MediaPipe Face Landmarker wrapper + landmark-to-embedding helper
+├── face_profile.py   On-disk face identity profile (cosine similarity matching)
+└── calibration.py    Standalone face calibration UI (~20 pose captures)
+handvol.pyw           Entry point: argparse, tray icon, capture loop, event dispatch
 tests/
-└── test_scrubber.py   Unit tests for scrubber + state machine
+├── test_scrubber.py        Unit tests for scrubber + state machine
+├── test_face_embedding.py  Unit tests for landmark-to-embedding helper
+└── test_face_profile.py    Unit tests for FaceProfile save/load + matching
 ```
 
 See [`CONTEXT.md`](CONTEXT.md) for the full design doc: gesture-mapping
