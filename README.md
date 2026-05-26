@@ -1,18 +1,27 @@
 # HandVol
 
 Gesture-controlled Windows volume + media using a webcam and MediaPipe.
-Point your finger to scrub volume, close your fist to mute, open your palm
-to play/pause.
+Pinch your thumb and index in an OK sign to scrub volume, close your fist
+to mute, open your palm to play/pause, and use sideways thumbs to skip
+tracks.
 
 | Gesture | Action |
 |---|---|
-| ☝️ Point up | Hold and move up/down to scrub volume |
+| 👌 OK sign | Hold and move up/down to scrub volume |
 | ✊ Closed fist | Toggle mute |
 | ✋ Open palm | Toggle play/pause |
 | ✌️ Victory | Focus Spotify (launch it if not running) |
+| 🤟 ILoveYou | Close Spotify |
+| 👉 Thumb sideways → right | Next track (works for either hand) |
+| 👈 Thumb sideways → left | Previous track (works for either hand) |
+
+Direction is reported in your real-world frame: thumb tip toward your
+right = next, toward your left = previous, regardless of which hand.
 
 No model training, no cloud calls, no per-app permissions. Runs locally
-off the pretrained MediaPipe Gesture Recognizer.
+off the pretrained MediaPipe Gesture Recognizer, with custom
+landmark-based detection layered on top for the OK sign and sideways
+thumbs.
 
 ## Requirements
 
@@ -22,10 +31,10 @@ off the pretrained MediaPipe Gesture Recognizer.
 
 ## Setup
 
+Install dependencies directly into your system Python (no virtualenv):
+
 ```powershell
 # from the repo root
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
@@ -37,6 +46,18 @@ https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recog
 
 Save it as `models/gesture_recognizer.task`.
 
+Also download the face landmarker model:
+
+```
+https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+```
+
+Save it as `models/face_landmarker.task`.
+
+After first launch, run the face calibration once via the tray icon's
+**Calibrate face...** menu item (or `python -m handvol.calibration`).
+Gestures are blocked until calibration has been completed.
+
 ## Run
 
 ```powershell
@@ -47,7 +68,9 @@ HandVol installs a **system-tray icon** (bottom-right, in the hidden-icon
 overflow on a fresh Windows install — drag it onto the taskbar to pin).
 
 - **Left-click the tray icon** → toggle the OpenCV preview window on/off.
-- **Right-click** → menu with *Show preview* (checked when visible) and *Quit*.
+- **Right-click** → menu with *Show preview* (checked when visible),
+  *Pause* (releases the camera; useful before joining a virtual meeting),
+  and *Quit*.
 - **Esc** inside the preview window also hides it.
 - To quit, use the tray's *Quit* item (or kill `pythonw.exe` from Task Manager).
 
@@ -59,7 +82,7 @@ the preview already open.
 | Flag | What it does |
 |---|---|
 | `--sensitivity 80` | Volume points per full-frame vertical travel. Higher = faster scrub. |
-| `--smoothing 0.3` | EMA factor on finger position. Lower = laggier, higher = jitterier. |
+| `--smoothing 0.3` | EMA factor on pinch position. Lower = laggier, higher = jitterier. |
 | `--cam 0` | Webcam index, if you have more than one. |
 | `--debug` | Print frame-by-frame state and scrub values. |
 | `--no-audio` | Skip all pycaw/media calls — overlay only, for tuning. |
@@ -69,23 +92,22 @@ the preview already open.
 
 1. Press `Win+R`, type `shell:startup`, Enter.
 2. Right-click → New → Shortcut → browse to `handvol_startup.vbs` in this repo.
-3. Next login, HandVol runs hidden. Quit anytime with **Ctrl+Shift+Q**.
+3. Next login, HandVol runs hidden. Quit anytime via the tray icon.
 
 The `.vbs` shim invokes `pythonw.exe` so no console window flashes.
-It prefers `.venv\Scripts\pythonw.exe` if present, otherwise falls back
-to whatever `pythonw` is on PATH.
 
 ## Project layout
 
 ```
 handvol/
-├── capture.py    Webcam + MediaPipe LIVE_STREAM wiring
+├── capture.py    Webcam + MediaPipe LIVE_STREAM + custom OK/side-thumb detection
 ├── scrubber.py   Pure-logic volume scrubber (anchor + EMA)
 ├── state.py      IDLE / SCRUB / IDLE_COOLDOWN debouncer
 ├── audio.py      pycaw wrapper (volume + mute)
-├── media.py      Media play/pause key
+├── media.py      Media play/pause and track-skip keys
+├── spotify.py    Focus/launch/close Spotify via Win32
 └── overlay.py    OpenCV drawing helpers
-handvol.pyw       Entry point: argparse, loop, event dispatch
+handvol.pyw       Entry point: argparse, tray icon, capture loop, event dispatch
 tests/
 └── test_scrubber.py   Unit tests for scrubber + state machine
 ```
@@ -93,6 +115,24 @@ tests/
 See [`CONTEXT.md`](CONTEXT.md) for the full design doc: gesture-mapping
 rationale, scrub algorithm derivation, state-machine debounce thresholds,
 and acceptance criteria.
+
+### Gesture detection internals
+
+MediaPipe's built-in classifier handles `Closed_Fist`, `Open_Palm`,
+`Victory`, and `ILoveYou` directly. The OK sign and the four sideways
+thumb labels (`left_hand_thumb_left`, `left_hand_thumb_right`,
+`right_hand_thumb_left`, `right_hand_thumb_right`) are detected from the
+21 hand landmarks in `capture.py`:
+
+- **OK sign:** thumb tip touches index tip; middle, ring, pinky extended.
+- **Sideways thumb:** thumb extended horizontally with the other four
+  fingers curled into a fist. Direction comes from the thumb-tip x
+  relative to the thumb base; hand identity comes from MediaPipe's
+  handedness (with the convention inverted because the frame is
+  pre-mirrored for selfie view).
+
+Tuning constants for the landmark checks live at the top of
+`handvol/capture.py`.
 
 ## Testing
 
@@ -117,3 +157,7 @@ webcam.
 - **Tray icon missing** — Windows hides new tray icons in the overflow
   by default. Click the `^` chevron in the taskbar and drag the HandVol
   icon onto the visible area to pin it.
+- **Side-thumb skip/prev firing the wrong direction** — extremely
+  unlikely, but if MediaPipe's handedness convention differs on your
+  build, swap the `hand_prefix` mapping in
+  `handvol/capture.py::_detect_side_thumb`.

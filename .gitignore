@@ -5,5 +5,7 @@ __pycache__/
 venv/
 .pytest_cache/
 models/*.task
+data/
+!data/.gitkeep
 .vscode/
 .idea/
