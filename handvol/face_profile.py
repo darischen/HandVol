@@ -20,7 +20,7 @@ import numpy as np
 
 
 MATCH_THRESHOLD = 0.92
-PROFILE_VERSION = 1
+PROFILE_VERSION = 2
 DEFAULT_PROFILE_PATH = Path(__file__).resolve().parent.parent / "data" / "face_profile.npz"
 
 _log = logging.getLogger(__name__)
@@ -96,6 +96,13 @@ class FaceProfile:
                 version = int(data["version"]) if "version" in data else PROFILE_VERSION
         except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile) as exc:
             _log.warning("Failed to load face profile at %s: %s", path, exc)
+            return None
+        if version != PROFILE_VERSION:
+            _log.warning(
+                "face profile at %s is version %d; this build expects version %d "
+                "— please re-calibrate.",
+                path, version, PROFILE_VERSION,
+            )
             return None
         if embeddings.ndim != 2:
             _log.warning("Face profile at %s has unexpected shape %s", path, embeddings.shape)

@@ -86,3 +86,15 @@ def test_add_capture_rejects_wrong_dim():
     p = FaceProfile.create_empty(embedding_dim=8)
     with pytest.raises(ValueError):
         p.add_capture(np.zeros(7, dtype=np.float32))
+
+
+def test_load_rejects_v1_profile(tmp_path):
+    # Write a profile with the OLD version=1 marker; load() must reject it.
+    path = tmp_path / "v1.npz"
+    np.savez(
+        path,
+        embeddings=np.zeros((3, 1434), dtype=np.float32),
+        created_at=np.array("2026-01-01"),
+        version=np.array(1),
+    )
+    assert FaceProfile.load(path) is None
