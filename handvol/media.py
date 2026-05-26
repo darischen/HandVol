@@ -21,3 +21,31 @@ def play_pause():
         _pyautogui.press('playpause')
         return
     raise RuntimeError("No media key backend available (install `keyboard` or `pyautogui`).")
+
+
+def next_track():
+    """Send the media next-track key. Falls back to pyautogui if `keyboard` lacks permission."""
+    if _keyboard is not None:
+        try:
+            _keyboard.send('next track')
+            return
+        except Exception:
+            pass
+    if _pyautogui is not None:
+        _pyautogui.press('nexttrack')
+        return
+    raise RuntimeError("No media key backend available (install `keyboard` or `pyautogui`).")
+
+
+def previous_track():
+    """Send the media previous-track key. Falls back to pyautogui if `keyboard` lacks permission."""
+    if _keyboard is not None:
+        try:
+            _keyboard.send('previous track')
+            return
+        except Exception:
+            pass
+    if _pyautogui is not None:
+        _pyautogui.press('prevtrack')
+        return
+    raise RuntimeError("No media key backend available (install `keyboard` or `pyautogui`).")

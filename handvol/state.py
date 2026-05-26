@@ -16,6 +16,8 @@ class Event(str, Enum):
     TOGGLE_PLAYPAUSE = "toggle_playpause"
     FOCUS_SPOTIFY = "focus_spotify"
     EXIT_SPOTIFY = "exit_spotify"
+    NEXT_TRACK = "next_track"
+    PREV_TRACK = "prev_track"
 
 
 SCRUB_ENTER_FRAMES = 5
@@ -28,6 +30,8 @@ FIST = "Closed_Fist"
 PALM = "Open_Palm"
 VICTORY = "Victory"
 ILOVEYOU = "ILoveYou"
+THUMB_UP = "Thumb_Up"
+THUMB_DOWN = "Thumb_Down"
 
 
 class GestureStateMachine:
@@ -45,6 +49,8 @@ class GestureStateMachine:
         self._palm_count = 0
         self._victory_count = 0
         self._iloveyou_count = 0
+        self._thumb_up_count = 0
+        self._thumb_down_count = 0
         self._neutral_count = 0
         self._cooldown_left = 0
 
@@ -55,6 +61,8 @@ class GestureStateMachine:
         self._palm_count = 0
         self._victory_count = 0
         self._iloveyou_count = 0
+        self._thumb_up_count = 0
+        self._thumb_down_count = 0
         self._neutral_count = 0
 
     def _bump(self, gesture):
@@ -63,7 +71,9 @@ class GestureStateMachine:
         self._palm_count = self._palm_count + 1 if gesture == PALM else 0
         self._victory_count = self._victory_count + 1 if gesture == VICTORY else 0
         self._iloveyou_count = self._iloveyou_count + 1 if gesture == ILOVEYOU else 0
-        if gesture in (POINTING, FIST, PALM, VICTORY, ILOVEYOU):
+        self._thumb_up_count = self._thumb_up_count + 1 if gesture == THUMB_UP else 0
+        self._thumb_down_count = self._thumb_down_count + 1 if gesture == THUMB_DOWN else 0
+        if gesture in (POINTING, FIST, PALM, VICTORY, ILOVEYOU, THUMB_UP, THUMB_DOWN):
             self._neutral_count = 0
         else:
             self._neutral_count += 1
@@ -101,6 +111,16 @@ class GestureStateMachine:
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
                 return Event.EXIT_SPOTIFY
+            if self._thumb_up_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.NEXT_TRACK
+            if self._thumb_down_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.PREV_TRACK
             return Event.NONE
 
         if self.state is State.SCRUB:

@@ -136,6 +136,14 @@ def capture_loop(args, show_evt, worker_stop, icon):
                 if args.debug:
                     print(f"  spotify exit: {result}")
 
+            elif event is Event.NEXT_TRACK:
+                if not args.no_audio:
+                    media.next_track()
+
+            elif event is Event.PREV_TRACK:
+                if not args.no_audio:
+                    media.previous_track()
+
             now = time.monotonic()
             dt = now - last_t
             last_t = now
@@ -189,6 +197,7 @@ def capture_loop(args, show_evt, worker_stop, icon):
                     Event.ENTER_SCRUB, Event.EXIT_SCRUB,
                     Event.TOGGLE_MUTE, Event.TOGGLE_PLAYPAUSE,
                     Event.FOCUS_SPOTIFY, Event.EXIT_SPOTIFY,
+                    Event.NEXT_TRACK, Event.PREV_TRACK,
                 ):
                     print(f"[{machine.state.value:14s}] gesture={gesture:14s} "
                           f"event={event.value:18s} fps={fps:5.1f}")
