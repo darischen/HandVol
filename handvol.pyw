@@ -6,6 +6,7 @@ from collections import deque
 
 from PIL import Image, ImageDraw, ImageFont
 from pystray import Icon, Menu, MenuItem
+import keyboard
 
 from handvol import audio, media, spotify, taskbar, vscode
 from handvol import discord as discord_app
@@ -179,6 +180,32 @@ def capture_loop(args, show_evt, worker_stop, icon):
                 if args.debug:
                     print(f"  chrome 2: {result}")
 
+            elif event is Event.OPEN_TASK_MANAGER:
+                keyboard.press("ctrl")
+                time.sleep(0.05)
+                keyboard.press("shift")
+                time.sleep(0.05)
+                keyboard.press("esc")
+                time.sleep(0.05)
+                keyboard.release("esc")
+                time.sleep(0.05)
+                keyboard.release("shift")
+                time.sleep(0.05)
+                keyboard.release("ctrl")
+                if args.debug:
+                    print(f"  open task manager")
+
+            elif event is Event.CLOSE_WINDOW:
+                keyboard.press("alt")
+                time.sleep(0.05)
+                keyboard.press("F4")
+                time.sleep(0.05)
+                keyboard.release("F4")
+                time.sleep(0.05)
+                keyboard.release("alt")
+                if args.debug:
+                    print(f"  close window")
+
             elif event is Event.NEXT_TRACK:
                 if not args.no_audio:
                     media.next_track()
@@ -255,7 +282,7 @@ def capture_loop(args, show_evt, worker_stop, icon):
                     Event.FOCUS_VSCODE,
                     Event.FOCUS_CHROME_1, Event.FOCUS_CHROME_2,
                     Event.NEXT_TRACK, Event.PREV_TRACK,
-                    Event.RESTART_PC, Event.SHUTDOWN_PC,
+                    Event.RESTART_PC, Event.SHUTDOWN_PC, Event.OPEN_TASK_MANAGER, Event.CLOSE_WINDOW,
                 ):
                     print(f"[{machine.state.value:14s}] gesture={gesture:14s} "
                           f"event={event.value:18s} fps={fps:5.1f}")
