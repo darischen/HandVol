@@ -132,6 +132,13 @@ class GestureSource:
             raise RuntimeError(f"Could not open camera index {self.cam_index}")
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        # Pin the camera to 30 FPS and keep only the freshest frame in
+        # the driver's buffer. Without this, OpenCV's DSHOW backend
+        # returns stale buffered frames while the main loop spins much
+        # faster than the camera produces unique frames, which looks
+        # smooth on the FPS counter but stuttery on screen.
+        self._cap.set(cv2.CAP_PROP_FPS, 30)
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         try:
             base_opts = mp_python.BaseOptions(model_asset_path=self.model_path)
