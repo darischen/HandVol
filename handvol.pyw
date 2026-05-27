@@ -7,7 +7,8 @@ from collections import deque
 from PIL import Image, ImageDraw, ImageFont
 from pystray import Icon, Menu, MenuItem
 
-from handvol import audio, media, spotify
+from handvol import audio, media, spotify, taskbar, vscode
+from handvol import discord as discord_app
 from handvol.capture import GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
 from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS
@@ -16,6 +17,11 @@ from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS
 INDEX_TIP = 8  # MediaPipe landmark index for the index fingertip
 THUMB_TIP = 4  # MediaPipe landmark index for the thumb tip
 WINDOW_TITLE = "HandVol"
+
+# Taskbar slot Chrome is pinned to. Number_1 sends Win+<slot> once (focus/launch
+# the first window); Number_2 sends it twice with Win held (cycle to the second
+# window). Change this if you re-pin Chrome.
+CHROME_TASKBAR_SLOT = 1
 
 
 def scrub_tip(landmarks):
@@ -153,6 +159,26 @@ def capture_loop(args, show_evt, worker_stop, icon):
                 if args.debug:
                     print(f"  spotify exit: {result}")
 
+            elif event is Event.FOCUS_DISCORD:
+                result = discord_app.focus_or_launch()
+                if args.debug:
+                    print(f"  discord: {result}")
+
+            elif event is Event.FOCUS_VSCODE:
+                result = vscode.focus_or_launch()
+                if args.debug:
+                    print(f"  vscode: {result}")
+
+            elif event is Event.FOCUS_CHROME_1:
+                result = taskbar.focus_slot(CHROME_TASKBAR_SLOT, presses=1)
+                if args.debug:
+                    print(f"  chrome 1: {result}")
+
+            elif event is Event.FOCUS_CHROME_2:
+                result = taskbar.focus_slot(CHROME_TASKBAR_SLOT, presses=2)
+                if args.debug:
+                    print(f"  chrome 2: {result}")
+
             elif event is Event.NEXT_TRACK:
                 if not args.no_audio:
                     media.next_track()
@@ -225,7 +251,9 @@ def capture_loop(args, show_evt, worker_stop, icon):
                 if args.debug or event in (
                     Event.ENTER_SCRUB, Event.EXIT_SCRUB,
                     Event.TOGGLE_MUTE, Event.TOGGLE_PLAYPAUSE, Event.TOGGLE_PREVIEW,
-                    Event.FOCUS_SPOTIFY, Event.EXIT_SPOTIFY,
+                    Event.FOCUS_SPOTIFY, Event.EXIT_SPOTIFY, Event.FOCUS_DISCORD,
+                    Event.FOCUS_VSCODE,
+                    Event.FOCUS_CHROME_1, Event.FOCUS_CHROME_2,
                     Event.NEXT_TRACK, Event.PREV_TRACK,
                     Event.RESTART_PC, Event.SHUTDOWN_PC,
                 ):

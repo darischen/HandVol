@@ -16,10 +16,10 @@ to restart your PC, or double middle finger to shut it down.
 | 👉 Thumb sideways → right | Next track (works for either hand) |
 | 👈 Thumb sideways → left | Previous track (works for either hand) |
 | **Number gestures (two hands)** | **Display recognized number 1-10** |
-| Fist + Pointer | Number 1 |
-| Fist + Victory | Number 2 |
-| Fist + 3 fingers | Number 3 |
-| Fist + 4 fingers | Number 4 |
+| Fist + Pointer | Number 1 — Focus first Chrome window (Win+1; launch Chrome if not running) |
+| Fist + Victory | Number 2 — Cycle to second Chrome window (Win+1 twice) |
+| Fist + 3 fingers | Number 3 — Focus Discord (launch it if not running) |
+| Fist + 4 fingers | Number 4 — Focus VS Code (launch it if not running) |
 | Fist + Open palm | Number 5 |
 | Open palm + Pointer | Number 6 |
 | Open palm + Victory | Number 7 |
@@ -105,6 +105,9 @@ handvol/
 ├── audio.py          pycaw wrapper (volume + mute)
 ├── media.py          Media play/pause and track-skip keys
 ├── spotify.py        Focus/launch/close Spotify via Win32
+├── discord.py        Focus/launch Discord via Win32 + Squirrel updater
+├── vscode.py         Focus/launch VS Code via Win32 + known install paths
+├── taskbar.py        Synthesize Win+N taskbar shortcuts (used for Chrome)
 ├── overlay.py        OpenCV drawing helpers
 ├── face_detect.py    MediaPipe Face Landmarker wrapper + landmark-to-embedding helper
 ├── face_profile.py   On-disk face identity profile (cosine similarity matching)

@@ -18,6 +18,10 @@ class Event(str, Enum):
     TOGGLE_PREVIEW = "toggle_preview"
     FOCUS_SPOTIFY = "focus_spotify"
     EXIT_SPOTIFY = "exit_spotify"
+    FOCUS_DISCORD = "focus_discord"
+    FOCUS_VSCODE = "focus_vscode"
+    FOCUS_CHROME_1 = "focus_chrome_1"
+    FOCUS_CHROME_2 = "focus_chrome_2"
     NEXT_TRACK = "next_track"
     PREV_TRACK = "prev_track"
     RESTART_PC = "restart_pc"
@@ -29,8 +33,8 @@ SCRUB_EXIT_FRAMES = 3
 TOGGLE_FRAMES = 5
 COOLDOWN_FRAMES = 10
 # Wall-clock hold for destructive system gestures. Frame-count debounces drift
-# with fps; restart/shutdown need a real 5-second deliberation regardless.
-HOLD_SECONDS = 5.0
+# with fps; restart/shutdown need a real 3-second deliberation regardless.
+HOLD_SECONDS = 3.0
 
 FIST = "Closed_Fist"
 PALM = "Open_Palm"
@@ -47,6 +51,11 @@ RIGHT_HAND_THUMB_RIGHT = "right_hand_thumb_right"
 
 SKIP_GESTURES = (LEFT_HAND_THUMB_RIGHT, RIGHT_HAND_THUMB_RIGHT)
 PREV_GESTURES = (LEFT_HAND_THUMB_LEFT, RIGHT_HAND_THUMB_LEFT)
+
+NUMBER_1 = "Number_1"
+NUMBER_2 = "Number_2"
+NUMBER_3 = "Number_3"
+NUMBER_4 = "Number_4"
 
 
 class GestureStateMachine:
@@ -67,6 +76,10 @@ class GestureStateMachine:
         self._pointer_count = 0
         self._skip_count = 0
         self._prev_count = 0
+        self._number_1_count = 0
+        self._number_2_count = 0
+        self._number_3_count = 0
+        self._number_4_count = 0
         self._neutral_count = 0
         self._cooldown_left = 0
         # Wall-clock start times for hold-gestures; None when not currently held.
@@ -83,6 +96,10 @@ class GestureStateMachine:
         self._pointer_count = 0
         self._skip_count = 0
         self._prev_count = 0
+        self._number_1_count = 0
+        self._number_2_count = 0
+        self._number_3_count = 0
+        self._number_4_count = 0
         self._neutral_count = 0
         self._middle_start_t = None
         self._double_middle_start_t = None
@@ -98,6 +115,10 @@ class GestureStateMachine:
         self._pointer_count = self._pointer_count + 1 if gesture == POINTING_UP else 0
         self._skip_count = self._skip_count + 1 if is_skip else 0
         self._prev_count = self._prev_count + 1 if is_prev else 0
+        self._number_1_count = self._number_1_count + 1 if gesture == NUMBER_1 else 0
+        self._number_2_count = self._number_2_count + 1 if gesture == NUMBER_2 else 0
+        self._number_3_count = self._number_3_count + 1 if gesture == NUMBER_3 else 0
+        self._number_4_count = self._number_4_count + 1 if gesture == NUMBER_4 else 0
         # Hold timers: start on first sighting, clear the moment the gesture drops.
         # Mutually exclusive — flipping between single and double restarts the clock.
         now = time.monotonic()
@@ -115,6 +136,7 @@ class GestureStateMachine:
         if is_skip or is_prev or gesture in (
             OK_SIGN, FIST, PALM, VICTORY, ILOVEYOU, POINTING_UP,
             MIDDLE_FINGER, DOUBLE_MIDDLE_FINGER,
+            NUMBER_1, NUMBER_2, NUMBER_3, NUMBER_4,
         ):
             self._neutral_count = 0
         else:
@@ -183,6 +205,26 @@ class GestureStateMachine:
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
                 return Event.EXIT_SPOTIFY
+            if self._number_1_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.FOCUS_CHROME_1
+            if self._number_2_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.FOCUS_CHROME_2
+            if self._number_3_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.FOCUS_DISCORD
+            if self._number_4_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.FOCUS_VSCODE
             if self._skip_count >= TOGGLE_FRAMES:
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES
