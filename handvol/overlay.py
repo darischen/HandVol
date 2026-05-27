@@ -102,15 +102,22 @@ def draw_lock_state(frame, recognized, has_profile, similarity=None, threshold=N
 
 
 def draw_face_landmarks(frame, face_landmarks_list, color=GRAY):
-    """Draw small dots for each face landmark, mirroring draw_landmarks
-    for hands. `face_landmarks_list` is a list (one entry per detected face)
-    of NormalizedLandmark lists from MediaPipe Face Landmarker (478 points).
+    """Draw a single pixel per face landmark via vectorized numpy
+    indexing. Drastically faster than 478 cv2.circle calls per face per
+    frame — important because face_landmarks_list shows up every frame
+    that a face is in view.
+
+    `face_landmarks_list` is a list (one entry per detected face) of
+    NormalizedLandmark lists from MediaPipe Face Landmarker (478 points).
     """
     if not face_landmarks_list:
         return
+    import numpy as np
     h, w = frame.shape[:2]
+    color_arr = np.array(color, dtype=frame.dtype)
     for face in face_landmarks_list:
-        for lm in face:
-            x = int(lm.x * w)
-            y = int(lm.y * h)
-            cv2.circle(frame, (x, y), 1, color, -1, cv2.LINE_AA)
+        xs = np.fromiter((lm.x for lm in face), dtype=np.float32, count=len(face))
+        ys = np.fromiter((lm.y for lm in face), dtype=np.float32, count=len(face))
+        xi = np.clip((xs * w).astype(np.int32), 0, w - 1)
+        yi = np.clip((ys * h).astype(np.int32), 0, h - 1)
+        frame[yi, xi] = color_arr

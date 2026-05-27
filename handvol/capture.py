@@ -187,23 +187,14 @@ class GestureSource:
         self._recognizer.recognize_async(mp_image, ts_ms)
         self._embedder.submit(mp_image, ts_ms)
 
-        # Pick the largest detected face by bbox area and submit (rgb,
-        # bbox) to the dlib worker. The worker rate-limits itself.
+        # MediaPipe is configured for num_faces=1, so face_lms[0] is the
+        # single (most prominent) face. Submit its bbox to the dlib
+        # worker; the worker rate-limits itself.
         face_lms, _ = self._embedder.latest()
         if face_lms:
-            largest_bbox = None
-            largest_area = -1
-            for lms in face_lms:
-                bbox = landmarks_to_bbox(lms, frame.shape)
-                if bbox is None:
-                    continue
-                top, right, bottom, left = bbox
-                area = max(0, right - left) * max(0, bottom - top)
-                if area > largest_area:
-                    largest_area = area
-                    largest_bbox = bbox
-            if largest_bbox is not None:
-                self._identity.submit(rgb, largest_bbox)
+            bbox = landmarks_to_bbox(face_lms[0], frame.shape)
+            if bbox is not None:
+                self._identity.submit(rgb, bbox)
 
         identity_emb, _ = self._identity.latest()
 
