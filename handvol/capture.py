@@ -95,6 +95,10 @@ class GestureSource:
         self._lock = threading.Lock()
         self._latest = None  # (gesture_name, score, landmarks)
         self._start_ns = None
+        # MediaPipe LIVE_STREAM requires strictly increasing timestamps.
+        # On coarse monotonic clocks two reads can land in the same ms;
+        # this counter guards against that by bumping to prev+1.
+        self._last_ts_ms = -1
         self._embedder = FaceEmbedder()
         self._identity = IdentityEncoder()
 
@@ -169,7 +173,10 @@ class GestureSource:
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        ts_ms = (time.monotonic_ns() - self._start_ns) // 1_000_000
+        ts_ms = int((time.monotonic_ns() - self._start_ns) // 1_000_000)
+        if ts_ms <= self._last_ts_ms:
+            ts_ms = self._last_ts_ms + 1
+        self._last_ts_ms = ts_ms
         self._recognizer.recognize_async(mp_image, ts_ms)
         self._embedder.submit(mp_image, ts_ms)
 
