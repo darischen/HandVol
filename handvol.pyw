@@ -67,11 +67,12 @@ def _load_font(size):
     return font
 
 
-def make_volume_image(level, dimmed=False):
+def make_volume_image(level, dimmed=False, locked=False):
     """Render the integer volume (0-100) centered on a transparent square.
     Sized so that 3 digits ('100') still fit; 1- and 2-digit values use a
     larger glyph for legibility at 16x16. When dimmed=True, the text is
-    drawn in semi-transparent gray to signal a paused state."""
+    drawn in semi-transparent gray to signal a paused state. When locked=True,
+    the text is drawn in red to signal a locked state."""
     img = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     text = str(int(level))
@@ -84,7 +85,12 @@ def make_volume_image(level, dimmed=False):
     h = bbox[3] - bbox[1]
     x = (ICON_SIZE - w) // 2 - bbox[0]
     y = (ICON_SIZE - h) // 2 - bbox[1]
-    fill = (128, 128, 128, 180) if dimmed else (255, 255, 255, 255)
+    if locked:
+        fill = (255, 0, 0, 255)
+    elif dimmed:
+        fill = (128, 128, 128, 180)
+    else:
+        fill = (255, 255, 255, 255)
     d.text((x, y), text, fill=fill, font=font)
     return img
 
@@ -198,6 +204,9 @@ def capture_loop(args, show_evt, worker_stop, icon):
                 locked = not locked
                 if args.debug:
                     print(f"  lock toggled: {'LOCKED' if locked else 'UNLOCKED'}")
+                if vol_now is not None:
+                    vol_int = int(round(vol_now))
+                    icon.icon = make_volume_image(vol_int, locked=locked)
 
             elif event is Event.NEXT_TRACK:
                 if not args.no_audio:
@@ -233,7 +242,7 @@ def capture_loop(args, show_evt, worker_stop, icon):
             if vol_now is not None:
                 vol_int = int(round(vol_now))
                 if vol_int != last_rendered_vol:
-                    icon.icon = make_volume_image(vol_int)
+                    icon.icon = make_volume_image(vol_int, locked=locked)
                     last_rendered_vol = vol_int
 
             want_window = show_evt.is_set()
