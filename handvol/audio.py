@@ -18,19 +18,44 @@ def _ctrl():
     return _volume_ctrl
 
 
+def _reset_ctrl():
+    global _volume_ctrl
+    _volume_ctrl = None
+
+
 def set_volume(percent):
+    global _volume_ctrl
     percent = max(0.0, min(100.0, float(percent)))
-    _ctrl().SetMasterVolumeLevelScalar(percent / 100.0, None)
+    try:
+        _ctrl().SetMasterVolumeLevelScalar(percent / 100.0, None)
+    except Exception:
+        _reset_ctrl()
+        raise
 
 
 def get_volume():
-    return _ctrl().GetMasterVolumeLevelScalar() * 100.0
+    global _volume_ctrl
+    try:
+        return _ctrl().GetMasterVolumeLevelScalar() * 100.0
+    except Exception:
+        _reset_ctrl()
+        raise
 
 
 def toggle_mute():
-    c = _ctrl()
-    c.SetMute(not c.GetMute(), None)
+    global _volume_ctrl
+    try:
+        c = _ctrl()
+        c.SetMute(not c.GetMute(), None)
+    except Exception:
+        _reset_ctrl()
+        raise
 
 
 def is_muted():
-    return bool(_ctrl().GetMute())
+    global _volume_ctrl
+    try:
+        return bool(_ctrl().GetMute())
+    except Exception:
+        _reset_ctrl()
+        raise
