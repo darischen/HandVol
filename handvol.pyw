@@ -179,10 +179,12 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
             gesture, score, landmarks, all_landmarks = (
                 latest if latest else ("None", 0.0, None, [])
             )
-            # When locked, only NUMBER_9 (unlock toggle) and NUMBER_6 (voice search,
-            # which re-uses the lock) need to reach the state machine. Everything else
-            # is gated.
-            effective_gesture = gesture if (not locked or gesture in (NUMBER_9, NUMBER_6)) else "None"
+            # When locked, drop every gesture except NUMBER_9 so the state
+            # machine sees a stream of "None" and only the unlock toggle
+            # gets through — same trick face-recognition uses. NUMBER_6
+            # (voice search) is intentionally gated so the lock fully
+            # suppresses it.
+            effective_gesture = gesture if (not locked or gesture == NUMBER_9) else "None"
             event = machine.step(effective_gesture)
 
             if event is Event.ENTER_SCRUB and landmarks is not None:

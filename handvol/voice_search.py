@@ -207,6 +207,10 @@ class VoiceSearch:
             vad_filter=False,  # we already did VAD
         )
         text = " ".join(seg.text for seg in segments).strip()
+        # Whisper appends sentence-final punctuation that breaks URL queries —
+        # "instagram.com." parses as a different domain than "instagram.com".
+        # Strip trailing punctuation; Chrome's omnibox handles the rest.
+        text = text.rstrip(".,!?;:")
         if not text:
             return "empty"
 
