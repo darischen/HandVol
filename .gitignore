@@ -7,3 +7,9 @@ venv/
 .vscode/
 .idea/
 data/
+
+# Installer build artifacts
+build/
+dist/
+cache/
+*.exe
