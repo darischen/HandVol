@@ -82,7 +82,10 @@ def draw_scrub_indicator(frame, anchor_y_norm, tip_y_norm, tip_x_norm):
 
 def draw_lock_state(frame, locked):
     """Small top-right indicator: 'LOCKED' (red) when locked, 'UNLOCKED' (green) otherwise.
-    Mirrors the face-recognition branch's lock indicator."""
+    Mirrors the face-recognition branch's lock indicator.
+    UNLOCKED label is currently suppressed — only draws when locked."""
+    if not locked:
+        return
     text = "LOCKED" if locked else "UNLOCKED"
     color = RED if locked else GREEN
     h, w = frame.shape[:2]
