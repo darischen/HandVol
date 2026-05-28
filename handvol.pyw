@@ -274,7 +274,6 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     taskbar.focus_slot(CHROME_TASKBAR_SLOT, presses=1)
                     shortcuts.open_new_tab()
                     icon.icon = make_mic_image()
-                    last_rendered_vol = None  # force icon refresh after restore
                     voice_search.start(on_done=on_voice_done)
 
             elif event is Event.TOGGLE_LOCK:
@@ -316,7 +315,9 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
             # Push a new tray glyph the moment the displayed integer changes.
             # No throttle — the comparison itself is the rate limit (one update
             # per integer step), and pystray's icon assignment is thread-safe.
-            if vol_now is not None:
+            # Skip the volume render while voice search is active so the mic
+            # glyph stays put; the completion handler restores it below.
+            if vol_now is not None and not voice_state["active"]:
                 vol_int = int(round(vol_now))
                 if vol_int != last_rendered_vol:
                     icon.icon = make_volume_image(vol_int, locked=locked)
