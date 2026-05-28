@@ -28,6 +28,7 @@ class Event(str, Enum):
     SHUTDOWN_PC = "shutdown_pc"
     OPEN_TASK_MANAGER = "open_task_manager"
     CLOSE_WINDOW = "close_window"
+    TOGGLE_LOCK = "toggle_lock"
 
 
 SCRUB_ENTER_FRAMES = 5
@@ -59,6 +60,7 @@ NUMBER_2 = "Number_2"
 NUMBER_3 = "Number_3"
 NUMBER_4 = "Number_4"
 NUMBER_5 = "Number_5"
+NUMBER_9 = "Number_9"
 NUMBER_10 = "Number_10"
 
 
@@ -85,6 +87,7 @@ class GestureStateMachine:
         self._number_3_count = 0
         self._number_4_count = 0
         self._number_5_count = 0
+        self._number_9_count = 0
         self._number_10_count = 0
         self._neutral_count = 0
         self._cooldown_left = 0
@@ -107,6 +110,7 @@ class GestureStateMachine:
         self._number_3_count = 0
         self._number_4_count = 0
         self._number_5_count = 0
+        self._number_9_count = 0
         self._number_10_count = 0
         self._neutral_count = 0
         self._middle_start_t = None
@@ -128,6 +132,7 @@ class GestureStateMachine:
         self._number_3_count = self._number_3_count + 1 if gesture == NUMBER_3 else 0
         self._number_4_count = self._number_4_count + 1 if gesture == NUMBER_4 else 0
         self._number_5_count = self._number_5_count + 1 if gesture == NUMBER_5 else 0
+        self._number_9_count = self._number_9_count + 1 if gesture == NUMBER_9 else 0
         self._number_10_count = self._number_10_count + 1 if gesture == NUMBER_10 else 0
         # Hold timers: start on first sighting, clear the moment the gesture drops.
         # Mutually exclusive — flipping between single and double restarts the clock.
@@ -146,7 +151,7 @@ class GestureStateMachine:
         if is_skip or is_prev or gesture in (
             OK_SIGN, FIST, PALM, VICTORY, ILOVEYOU, POINTING_UP,
             MIDDLE_FINGER, DOUBLE_MIDDLE_FINGER,
-            NUMBER_1, NUMBER_2, NUMBER_3, NUMBER_4, NUMBER_5, NUMBER_10,
+            NUMBER_1, NUMBER_2, NUMBER_3, NUMBER_4, NUMBER_5, NUMBER_9, NUMBER_10,
         ):
             self._neutral_count = 0
         else:
@@ -240,6 +245,11 @@ class GestureStateMachine:
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
                 return Event.OPEN_TASK_MANAGER
+            if self._number_9_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.TOGGLE_LOCK
             if self._number_10_count >= TOGGLE_FRAMES:
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES

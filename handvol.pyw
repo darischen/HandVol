@@ -11,7 +11,7 @@ from handvol import audio, media, spotify, taskbar, vscode, shortcuts
 from handvol import discord as discord_app
 from handvol.capture import GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
-from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS
+from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS, NUMBER_9
 
 
 INDEX_TIP = 8  # MediaPipe landmark index for the index fingertip
@@ -98,7 +98,7 @@ def capture_loop(args, show_evt, worker_stop, icon):
     import cv2
     from handvol.overlay import (
         draw_state, draw_gesture, draw_volume, draw_fps,
-        draw_landmarks, draw_scrub_indicator, draw_hold_timer,
+        draw_landmarks, draw_scrub_indicator, draw_hold_timer, draw_lock_state,
     )
 
     scrubber = VolumeScrubber(sensitivity=args.sensitivity, smoothing=args.smoothing)
@@ -109,6 +109,7 @@ def capture_loop(args, show_evt, worker_stop, icon):
     last_state = None
     window_open = False
     last_rendered_vol = None
+    locked = False
 
     with GestureSource(cam_index=args.cam) as source:
         while not worker_stop.is_set():
@@ -119,7 +120,11 @@ def capture_loop(args, show_evt, worker_stop, icon):
             gesture, score, landmarks, all_landmarks = (
                 latest if latest else ("None", 0.0, None, [])
             )
-            event = machine.step(gesture)
+            # When locked, drop every gesture except NUMBER_9 so the state
+            # machine sees a stream of "None" and only the unlock toggle
+            # gets through — same trick face-recognition uses.
+            effective_gesture = gesture if (not locked or gesture == NUMBER_9) else "None"
+            event = machine.step(effective_gesture)
 
             if event is Event.ENTER_SCRUB and landmarks is not None:
                 _, tip_y = scrub_tip(landmarks)
@@ -189,6 +194,11 @@ def capture_loop(args, show_evt, worker_stop, icon):
                 if args.debug:
                     print(f"  close window: {result}")
 
+            elif event is Event.TOGGLE_LOCK:
+                locked = not locked
+                if args.debug:
+                    print(f"  lock toggled: {'LOCKED' if locked else 'UNLOCKED'}")
+
             elif event is Event.NEXT_TRACK:
                 if not args.no_audio:
                     media.next_track()
@@ -237,6 +247,7 @@ def capture_loop(args, show_evt, worker_stop, icon):
                     action, elapsed = hold_progress
                     draw_hold_timer(frame, action, elapsed, HOLD_SECONDS)
                 draw_volume(frame, vol_now)
+                draw_lock_state(frame, locked)
                 if machine.state is State.SCRUB and scrubber.active and landmarks is not None:
                     tip_x, tip_y = scrub_tip(landmarks)
                     draw_scrub_indicator(frame, scrubber.anchor_y, tip_y, tip_x)

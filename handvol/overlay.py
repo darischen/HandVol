@@ -78,3 +78,13 @@ def draw_scrub_indicator(frame, anchor_y_norm, tip_y_norm, tip_x_norm):
     cv2.line(frame, (tx, ay), (tx, ty), CYAN, 2, cv2.LINE_AA)
     cv2.circle(frame, (tx, ty), 7, CYAN, 2, cv2.LINE_AA)
     cv2.circle(frame, (tx, ty), 2, CYAN, -1, cv2.LINE_AA)
+
+
+def draw_lock_state(frame, locked):
+    """Small top-right indicator: 'LOCKED' (red) when locked, 'UNLOCKED' (green) otherwise.
+    Mirrors the face-recognition branch's lock indicator."""
+    text = "LOCKED" if locked else "UNLOCKED"
+    color = RED if locked else GREEN
+    h, w = frame.shape[:2]
+    (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+    _put(frame, text, (w - tw - 12, 84), color, 0.6, 2)
