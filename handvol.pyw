@@ -11,12 +11,18 @@ from handvol import audio, media, spotify, taskbar, vscode, shortcuts
 from handvol import discord as discord_app
 from handvol.capture import GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
-from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS, NUMBER_9
+from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS, NUMBER_9, NUMBER_6
+from handvol.voice_search import VoiceSearch
 
 
 INDEX_TIP = 8  # MediaPipe landmark index for the index fingertip
 THUMB_TIP = 4  # MediaPipe landmark index for the thumb tip
 WINDOW_TITLE = "HandVol"
+
+# Holder is filled in by main() after the WhisperModel is loaded. Stays None
+# if the import or model load fails — in that case voice search is disabled
+# and the rest of the app works normally.
+_voice_search_holder = {"instance": None}
 
 # Taskbar slot Chrome is pinned to. Number_1 sends Win+<slot> once (focus/launch
 # the first window); Number_2 sends it twice with Win held (cycle to the second
@@ -95,6 +101,35 @@ def make_volume_image(level, dimmed=False, locked=False):
     return img
 
 
+def make_mic_image():
+    """Render a microphone glyph on a transparent square. Shown in the tray
+    while voice search is recording."""
+    img = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # Mic capsule (body): rounded rectangle centered upper-half
+    cap_w = ICON_SIZE // 3
+    cap_h = ICON_SIZE // 2
+    cx = ICON_SIZE // 2
+    cap_top = ICON_SIZE // 6
+    red = (255, 50, 50, 255)
+    d.rounded_rectangle(
+        [cx - cap_w // 2, cap_top, cx + cap_w // 2, cap_top + cap_h],
+        radius=cap_w // 2,
+        fill=red,
+    )
+    # Stand: vertical line + horizontal base
+    stand_top = cap_top + cap_h + 4
+    stand_bottom = ICON_SIZE - 8
+    d.line([(cx, stand_top), (cx, stand_bottom)], fill=red, width=4)
+    base_w = cap_w
+    d.line(
+        [(cx - base_w // 2, stand_bottom), (cx + base_w // 2, stand_bottom)],
+        fill=red,
+        width=4,
+    )
+    return img
+
+
 def capture_loop(args, show_evt, worker_stop, icon, request_pause):
     """Runs on a worker thread. Owns the camera, the model, and (when toggled
     on) the OpenCV window. cv2 + overlay are imported here so we only pay the
@@ -117,6 +152,20 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
     last_rendered_vol = None
     locked = False
 
+    voice_state = {"active": False, "was_locked": False, "completed": False}
+
+    # Lazy-load: the model is constructed in main() and passed in (see Step 7).
+    # Here we just capture the reference from the module-level holder.
+    voice_search = _voice_search_holder.get("instance")
+
+    def on_voice_done(result):
+        # Called from the VoiceSearch worker thread. Don't mutate shared
+        # state here beyond the dict flag — the capture loop polls and
+        # applies the restoration on its own thread.
+        if args.debug:
+            print(f"  voice search done: {result}")
+        voice_state["completed"] = True
+
     with GestureSource(cam_index=args.cam) as source:
         while not worker_stop.is_set():
             frame, latest = source.read()
@@ -126,10 +175,10 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
             gesture, score, landmarks, all_landmarks = (
                 latest if latest else ("None", 0.0, None, [])
             )
-            # When locked, drop every gesture except NUMBER_9 so the state
-            # machine sees a stream of "None" and only the unlock toggle
-            # gets through — same trick face-recognition uses.
-            effective_gesture = gesture if (not locked or gesture == NUMBER_9) else "None"
+            # When locked, only NUMBER_9 (unlock toggle) and NUMBER_6 (voice search,
+            # which re-uses the lock) need to reach the state machine. Everything else
+            # is gated.
+            effective_gesture = gesture if (not locked or gesture in (NUMBER_9, NUMBER_6)) else "None"
             event = machine.step(effective_gesture)
 
             if event is Event.ENTER_SCRUB and landmarks is not None:
@@ -205,6 +254,25 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     print("  pause camera (hang loose)")
                 request_pause()
 
+            elif event is Event.VOICE_SEARCH:
+                if voice_search is None:
+                    if args.debug:
+                        print("  voice search unavailable (model failed to load)")
+                elif voice_state["active"]:
+                    if args.debug:
+                        print("  voice search already active — ignoring")
+                else:
+                    voice_state["active"] = True
+                    voice_state["was_locked"] = locked
+                    locked = True
+                    if args.debug:
+                        print("  voice search start: focus chrome + ctrl+t")
+                    taskbar.focus_slot(CHROME_TASKBAR_SLOT, presses=1)
+                    shortcuts.open_new_tab()
+                    icon.icon = make_mic_image()
+                    last_rendered_vol = None  # force icon refresh after restore
+                    voice_search.start(on_done=on_voice_done)
+
             elif event is Event.TOGGLE_LOCK:
                 locked = not locked
                 if args.debug:
@@ -250,6 +318,14 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     icon.icon = make_volume_image(vol_int, locked=locked)
                     last_rendered_vol = vol_int
 
+            if voice_state["completed"]:
+                voice_state["completed"] = False
+                voice_state["active"] = False
+                locked = voice_state["was_locked"]
+                last_rendered_vol = None  # force tray glyph re-render on next tick
+                if vol_now is not None:
+                    icon.icon = make_volume_image(int(round(vol_now)), locked=locked)
+
             want_window = show_evt.is_set()
             if want_window:
                 for lm in all_landmarks:
@@ -291,7 +367,7 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     Event.FOCUS_CHROME_1, Event.FOCUS_CHROME_2,
                     Event.NEXT_TRACK, Event.PREV_TRACK,
                     Event.RESTART_PC, Event.SHUTDOWN_PC, Event.OPEN_TASK_MANAGER, Event.CLOSE_WINDOW,
-                    Event.PAUSE_CAMERA,
+                    Event.PAUSE_CAMERA, Event.VOICE_SEARCH,
                 ):
                     print(f"[{machine.state.value:14s}] gesture={gesture:14s} "
                           f"event={event.value:18s} fps={fps:5.1f}")
@@ -387,6 +463,14 @@ def main():
     except Exception:
         initial_vol = 0
     icon = Icon("handvol", make_volume_image(initial_vol), "HandVol", menu)
+
+    try:
+        from faster_whisper import WhisperModel
+        whisper_model = WhisperModel("base.en", device="cpu", compute_type="int8")
+        _voice_search_holder["instance"] = VoiceSearch(model=whisper_model)
+        print("[handvol] voice search ready (faster-whisper base.en, int8 CPU)")
+    except Exception as exc:
+        print(f"[handvol] voice search disabled: {exc!r}")
 
     start_worker()
 
