@@ -13,6 +13,7 @@ This module exposes two units:
   the captured buffer with faster-whisper and types the result via pyautogui.
   Integration-only; not unit-tested.
 """
+import difflib
 import queue
 import threading
 import time
@@ -27,6 +28,67 @@ import webrtcvad
 
 MODIFIER_WARMUP = 0.05
 INTER_KEY_DELAY = 0.05
+
+# Spoken-command prefixes that mean "navigate", not "search". These are short,
+# high-frequency English words Whisper transcribes reliably, so they make a
+# dependable intent signal: text starting with one is treated as a destination.
+GO_PREFIXES = ("go to", "goto", "open", "navigate to")
+
+# Friendly name (and synonyms) -> URL. Whisper only has to land *near* a key,
+# not spell the full domain — fuzzy matching against this closed set snaps a
+# garbled "gemoney" back to "gemini". Add common sites here.
+ALIASES = {
+    "gemini":    "https://gemini.google.com",
+    "youtube":   "https://youtube.com",
+    "yt":        "https://youtube.com",
+    "instagram": "https://instagram.com",
+    "insta":     "https://instagram.com",
+    "ig":        "https://instagram.com",
+    "github":    "https://github.com",
+    "gmail":     "https://mail.google.com",
+    "drive":     "https://drive.google.com",
+    "chatgpt":   "https://chat.openai.com",
+    "claude":    "https://claude.ai",
+    "reddit":    "https://reddit.com",
+    "twitter":   "https://twitter.com",
+    "x":         "https://x.com",
+    "netflix":   "https://netflix.com",
+    "amazon":    "https://amazon.com",
+}
+
+# difflib similarity cutoff for the fuzzy alias match: 0 matches anything,
+# 1 requires an exact key. 0.6 tolerates Whisper's near-misses while still
+# rejecting unrelated words.
+FUZZY_CUTOFF = 0.6
+
+
+def resolve_destination(text):
+    """Map a spoken "go to X" command to what should be typed into the omnibox.
+
+    Returns:
+        - the matched site URL when X resolves (exact or fuzzy) to a known site;
+        - the bare target word when a command prefix is present but X is unknown
+          (so the omnibox searches just "spotify", not "go to spotify");
+        - ``None`` when there's no command prefix, signalling the caller to use
+          the original transcript verbatim.
+    """
+    lowered = text.lower().strip()
+    for prefix in GO_PREFIXES:
+        if lowered.startswith(prefix + " "):
+            target = lowered[len(prefix):].strip()
+            # Drop a spoken or written ".com"/"dot com" tail so "go to youtube
+            # dot com" still keys on "youtube".
+            target = target.replace("dot com", "").replace(".com", "").strip()
+            if not target:
+                return None
+            if target in ALIASES:
+                return ALIASES[target]
+            match = difflib.get_close_matches(
+                target, ALIASES.keys(), n=1, cutoff=FUZZY_CUTOFF)
+            if match:
+                return ALIASES[match[0]]
+            return target  # known prefix, unknown site: search the bare target
+    return None
 
 
 class Phase(str, Enum):
@@ -214,7 +276,12 @@ class VoiceSearch:
         if not text:
             return "empty"
 
-        pyperclip.copy(text)
+        # A "go to X" command resolves to a URL (or the bare site name on a
+        # fuzzy miss); anything else is pasted verbatim for the omnibox to
+        # search. Either way it's a single string down the same paste path.
+        to_type = resolve_destination(text) or text
+
+        pyperclip.copy(to_type)
         try:
             pyautogui.keyDown("ctrl")
             try:
