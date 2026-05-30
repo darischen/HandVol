@@ -52,6 +52,20 @@ Var createShortcut
 ; Installer Sections
 ; ============================================================
 
+Function .onInit
+  ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\HandVol" "UninstallString"
+  StrCmp $R0 "" done
+
+  MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "An older version of HandVol exists. Click OK to remove it before continuing." IDOK uninst
+  Abort
+
+uninst:
+  ClearErrors
+  ExecWait '$R0 /S'
+
+done:
+FunctionEnd
+
 Section "Install"
   SetOutPath "$INSTDIR"
 
