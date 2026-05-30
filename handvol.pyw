@@ -301,6 +301,16 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
             elif event is Event.SHUTDOWN_PC:
                 print("[handvol] SHUTDOWN_PC fired — running 'shutdown /s /t 0'")
                 subprocess.Popen(["shutdown", "/s", "/t", "0"])
+                
+            elif event is Event.CONTROL_W:
+                if args.debug:
+                    print("  CONTROL_W: sending Ctrl+W to close the current tab/window")
+                shortcuts.controlW()
+
+            elif event is Event.CONTROL_TAB:
+                if args.debug:
+                    print("  CONTROL_TAB: sending Ctrl+Tab to switch to the next tab")
+                shortcuts.controlTab()
 
             now = time.monotonic()
             dt = now - last_t
@@ -375,6 +385,7 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     Event.NEXT_TRACK, Event.PREV_TRACK,
                     Event.RESTART_PC, Event.SHUTDOWN_PC, Event.OPEN_TASK_MANAGER, Event.CLOSE_WINDOW,
                     Event.PAUSE_CAMERA, Event.VOICE_SEARCH,
+                    Event.CONTROL_W, Event.CONTROL_TAB,
                 ):
                     print(f"[{machine.state.value:14s}] gesture={gesture:14s} "
                           f"event={event.value:18s} fps={fps:5.1f}")

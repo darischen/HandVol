@@ -63,3 +63,39 @@ def open_new_tab():
         return "ok"
     except Exception:
         return "failed"
+
+def controlW():
+    """Send Ctrl+W to close the current tab in the active window. Returns 'ok' or 'failed'.
+
+    Mirrors close_window()'s modifier-warmup + try/finally pattern so the
+    Ctrl modifier is always released, even on exception.
+    """
+    try:
+        pyautogui.keyDown("ctrl")
+        try:
+            time.sleep(MODIFIER_WARMUP)
+            pyautogui.press("w")
+        finally:
+            time.sleep(INTER_KEY_DELAY)
+            pyautogui.keyUp("ctrl")
+        return "ok"
+    except Exception:
+        return "failed"
+    
+def controlTab():
+    """Send Ctrl+Tab to switch to the next tab in the active window. Returns 'ok' or 'failed'.
+
+    Mirrors close_window()'s modifier-warmup + try/finally pattern so the
+    Ctrl modifier is always released, even on exception.
+    """
+    try:
+        pyautogui.keyDown("ctrl")
+        try:
+            time.sleep(MODIFIER_WARMUP)
+            pyautogui.press("tab")
+        finally:
+            time.sleep(INTER_KEY_DELAY)
+            pyautogui.keyUp("ctrl")
+        return "ok"
+    except Exception:
+        return "failed"

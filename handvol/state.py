@@ -31,6 +31,8 @@ class Event(str, Enum):
     PAUSE_CAMERA = "pause_camera"
     TOGGLE_LOCK = "toggle_lock"
     VOICE_SEARCH = "voice_search"
+    CONTROL_W = "control_w"
+    CONTROL_TAB = "control_tab"
 
 
 SCRUB_ENTER_FRAMES = 5
@@ -67,6 +69,9 @@ NUMBER_6 = "Number_6"
 NUMBER_9 = "Number_9"
 NUMBER_10 = "Number_10"
 
+THREE_FINGERS = "three_fingers"
+FOUR_FINGERS = "four_fingers"
+
 
 class GestureStateMachine:
     """Drives the IDLE / SCRUB / IDLE_COOLDOWN debouncer.
@@ -97,6 +102,8 @@ class GestureStateMachine:
         self._hang_loose_count = 0
         self._neutral_count = 0
         self._cooldown_left = 0
+        self._three_fingers_count = 0
+        self._four_fingers_count = 0
         # Wall-clock start times for hold-gestures; None when not currently held.
         self._middle_start_t = None
         self._double_middle_start_t = None
@@ -121,6 +128,8 @@ class GestureStateMachine:
         self._number_10_count = 0
         self._hang_loose_count = 0
         self._neutral_count = 0
+        self._three_fingers_count = 0
+        self._four_fingers_count = 0
         self._middle_start_t = None
         self._double_middle_start_t = None
 
@@ -144,6 +153,8 @@ class GestureStateMachine:
         self._number_9_count = self._number_9_count + 1 if gesture == NUMBER_9 else 0
         self._number_10_count = self._number_10_count + 1 if gesture == NUMBER_10 else 0
         self._hang_loose_count = self._hang_loose_count + 1 if gesture == HANG_LOOSE else 0
+        self._three_fingers_count = self._three_fingers_count + 1 if gesture == THREE_FINGERS else 0
+        self._four_fingers_count = self._four_fingers_count + 1 if gesture == FOUR_FINGERS else 0
         # Hold timers: start on first sighting, clear the moment the gesture drops.
         # Mutually exclusive — flipping between single and double restarts the clock.
         now = time.monotonic()
@@ -162,6 +173,7 @@ class GestureStateMachine:
             OK_SIGN, FIST, PALM, VICTORY, ILOVEYOU, POINTING_UP,
             MIDDLE_FINGER, DOUBLE_MIDDLE_FINGER, HANG_LOOSE,
             NUMBER_1, NUMBER_2, NUMBER_3, NUMBER_4, NUMBER_5, NUMBER_6, NUMBER_9, NUMBER_10,
+            THREE_FINGERS, FOUR_FINGERS,
         ):
             self._neutral_count = 0
         else:
@@ -285,6 +297,16 @@ class GestureStateMachine:
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
                 return Event.PREV_TRACK
+            if self._three_fingers_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.CONTROL_W
+            if self._four_fingers_count >= TOGGLE_FRAMES:
+                self.state = State.IDLE_COOLDOWN
+                self._cooldown_left = COOLDOWN_FRAMES
+                self._reset_counters()
+                return Event.CONTROL_TAB
             return Event.NONE
 
         if self.state is State.SCRUB:
