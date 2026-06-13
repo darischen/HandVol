@@ -57,3 +57,29 @@ class OneEuroFilter:
         self._dx.reset()
         self._t_prev = None
         self._x_prev = None
+
+
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+class AbsoluteMapper:
+    """Maps the center `active` fraction of the camera frame to the full target
+    monitor. Reaching a screen edge needs the hand only near the middle of the
+    frame, so the whole hand stays visible. Position is absolute, so it snaps to
+    the hand inherently; `just_acquired` is accepted for interface symmetry."""
+
+    def __init__(self, screen_w, screen_h, active=0.65):
+        self.screen_w = screen_w
+        self.screen_h = screen_h
+        self.active = active
+
+    def map(self, point, just_acquired):
+        lo = (1 - self.active) / 2
+        span = 1 - 2 * lo
+        nx = _clamp((point[0] - lo) / span, 0.0, 1.0)
+        ny = _clamp((point[1] - lo) / span, 0.0, 1.0)
+        return (int(round(nx * self.screen_w)), int(round(ny * self.screen_h)))
+
+    def reset(self):
+        pass

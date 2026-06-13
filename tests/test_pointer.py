@@ -33,3 +33,30 @@ def test_reset_restores_initial_behavior():
     f(1.0, 1 / 30)
     f.reset()
     assert f(0.7, 0.0) == 0.7         # first call after reset returns input
+
+
+from handvol.handmouse.pointer import AbsoluteMapper
+
+
+def test_absolute_center_of_active_region_maps_to_screen_center():
+    m = AbsoluteMapper(screen_w=1920, screen_h=1080, active=0.65)
+    x, y = m.map((0.5, 0.5), just_acquired=True)
+    assert x == 960
+    assert y == 540
+
+
+def test_absolute_active_region_edge_maps_to_screen_edge():
+    m = AbsoluteMapper(screen_w=1920, screen_h=1080, active=0.65)
+    lo = (1 - 0.65) / 2  # 0.175
+    x0, y0 = m.map((lo, lo), just_acquired=False)
+    x1, y1 = m.map((1 - lo, 1 - lo), just_acquired=False)
+    assert (x0, y0) == (0, 0)
+    assert (x1, y1) == (1920, 1080)
+
+
+def test_absolute_clamps_outside_active_region():
+    m = AbsoluteMapper(screen_w=1920, screen_h=1080, active=0.65)
+    x, y = m.map((0.0, 0.0), just_acquired=False)
+    assert (x, y) == (0, 0)
+    x, y = m.map((1.0, 1.0), just_acquired=False)
+    assert (x, y) == (1920, 1080)
