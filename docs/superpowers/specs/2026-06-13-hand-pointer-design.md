@@ -44,11 +44,14 @@ capture, state, and dispatch flow.
    target monitor. Reaching a screen edge needs the hand only near the middle
    of the frame, keeping the whole hand visible. Margin is one tunable value.
 
-6. **PIP joint angle for click detection.** A click is a finger bend, detected
-   by the angle at the finger PIP joint (vectors `MCP->PIP` and `PIP->TIP`).
-   The angle reads the same across hand tilt and self-normalizes for hand
-   size. A Schmitt trigger (hysteresis) prevents one bend from chattering into
-   multiple events.
+6. **Fingertip-hook ratio for click detection (revised after smoke test).** A
+   click is a comfortable fingertip half-bend, where the tip, dip, and pip
+   cluster together while the MCP->PIP base stays straight. Detected by the
+   ratio `dist(tip, pip) / dist(pip, mcp)`: about 1.3 when straight, dropping
+   below ~0.7 when the top of the finger hooks. Scale- and tilt-invariant. A
+   Schmitt trigger (engage ~0.7, release ~0.95) prevents chatter. This replaced
+   the original full-bend PIP-angle approach, which required curling the whole
+   finger.
 
 7. **Faithful button up/down gives click, double-click, and drag for free.**
    Index bend sends left button down, straighten sends left button up. Middle
@@ -56,11 +59,17 @@ capture, state, and dispatch flow.
    double-click and a held-down move as a drag, so no separate timing logic is
    needed.
 
-8. **Scroll engages with a relaxed thumb touch.** While the U pose holds, the
-   thumb pad touching the side or base of the index (near its knuckle) engages
-   scroll. Index and middle stay straight so no clicks fire. Vertical hand
-   movement scrolls while the touch holds. Releasing the thumb resumes
-   pointing. Direction is configurable.
+8. **Scroll engages with a raised thumb, velocity-based (revised after smoke
+   test).** While the U pose holds, raising the thumb straight up (tip well
+   beyond its own MCP from the wrist) engages scroll. The default tucked thumb
+   keeps pointer and click mode. On engage, the current hand height is captured
+   as a fixed anchor. Scroll speed is proportional to how far the hand sits
+   above or below that anchor, so holding a displacement keeps scrolling (a
+   scroll joystick). The overlay shows the volume-style cyan bar at the anchor
+   with a dot tracking the current point. Lowering the thumb resumes pointing.
+   Speed (`--scroll-gain`) and direction (`--scroll-invert`) are configurable.
+   This replaced the original thumb-touch-to-index engagement (which was
+   inverted from what felt natural) and the per-frame increment model.
 
 ## Architecture
 
@@ -138,15 +147,18 @@ state -> dispatch flow. New code lives in a `handvol/handmouse/` package.
 
 ## Clicks, drag, double-click, scroll
 
-- **Bend detection**: PIP joint angle with a Schmitt trigger. Engage when the
-  angle drops below roughly 100 degrees, release when it rises above roughly
-  130 degrees. Thresholds are tunable.
-- **Buttons**: index bend = left button down, index straighten = left button
-  up. Middle bend = right button down and up. Single click, double-click, and
+- **Bend detection**: fingertip-hook ratio `dist(tip, pip) / dist(pip, mcp)`
+  with a Schmitt trigger. Engage when the ratio drops below ~0.7, release when
+  it rises above ~0.95. Thresholds are tunable. Detects a fingertip half-bend,
+  not a full curl.
+- **Buttons**: index hook = left button down, index straighten = left button
+  up. Middle hook = right button down and up. Single click, double-click, and
   drag emerge from this faithful mapping. Windows owns the timing.
-- **Scroll**: a relaxed thumb touch to the index base engages scroll. While
-  held, vertical hand movement sends wheel events. Direction is configurable,
-  defaulting to hand up = scroll up.
+- **Scroll**: raising the thumb engages scroll (velocity from a fixed anchor).
+  Speed is proportional to the hand's displacement from the anchor captured at
+  engage. Speed and direction are configurable (`--scroll-gain`,
+  `--scroll-invert`); default hand up = scroll up. The overlay draws the
+  volume-style anchor bar and tracking dot.
 
 ## State machine and coexistence
 
