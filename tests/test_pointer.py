@@ -60,3 +60,39 @@ def test_absolute_clamps_outside_active_region():
     assert (x, y) == (0, 0)
     x, y = m.map((1.0, 1.0), just_acquired=False)
     assert (x, y) == (1920, 1080)
+
+
+from handvol.handmouse.pointer import RelativeMapper
+
+
+def test_relative_first_map_after_acquire_does_not_jump():
+    m = RelativeMapper(screen_w=1920, screen_h=1080, gain=1.0)
+    m.set_cursor(900, 500)
+    x, y = m.map((0.2, 0.2), just_acquired=True)
+    assert (x, y) == (900, 500)  # establishes reference, no move
+
+
+def test_relative_accumulates_deltas():
+    m = RelativeMapper(screen_w=1920, screen_h=1080, gain=1.0)
+    m.set_cursor(900, 500)
+    m.map((0.5, 0.5), just_acquired=True)        # reference
+    x, y = m.map((0.6, 0.5), just_acquired=False)  # +0.1 of width
+    assert x == 900 + int(round(0.1 * 1920))
+    assert y == 500
+
+
+def test_relative_clutch_resets_reference_on_reacquire():
+    m = RelativeMapper(screen_w=1920, screen_h=1080, gain=1.0)
+    m.set_cursor(900, 500)
+    m.map((0.5, 0.5), just_acquired=True)
+    m.map((0.7, 0.5), just_acquired=False)       # cursor moves right
+    moved_x, moved_y = m.map((0.2, 0.2), just_acquired=True)  # re-acquire elsewhere
+    assert (moved_x, moved_y) == (m.cursor_x, m.cursor_y)  # no jump on reacquire
+
+
+def test_relative_clamps_to_screen_bounds():
+    m = RelativeMapper(screen_w=1920, screen_h=1080, gain=10.0)
+    m.set_cursor(0, 0)
+    m.map((0.5, 0.5), just_acquired=True)
+    x, y = m.map((1.0, 1.0), just_acquired=False)
+    assert (x, y) == (1920, 1080)

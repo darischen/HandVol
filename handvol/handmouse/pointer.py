@@ -83,3 +83,35 @@ class AbsoluteMapper:
 
     def reset(self):
         pass
+
+
+class RelativeMapper:
+    """Trackpad-style mapping: adds gain-scaled hand deltas to the cursor.
+    On re-acquisition it resets the reference point so the cursor resumes from
+    where it sits instead of jumping -- the clutch."""
+
+    def __init__(self, screen_w, screen_h, gain=2.0):
+        self.screen_w = screen_w
+        self.screen_h = screen_h
+        self.gain = gain
+        self.cursor_x = screen_w // 2
+        self.cursor_y = screen_h // 2
+        self._last = None
+
+    def set_cursor(self, x, y):
+        self.cursor_x = int(_clamp(x, 0, self.screen_w))
+        self.cursor_y = int(_clamp(y, 0, self.screen_h))
+
+    def map(self, point, just_acquired):
+        if just_acquired or self._last is None:
+            self._last = point
+            return (self.cursor_x, self.cursor_y)
+        dx = (point[0] - self._last[0]) * self.gain * self.screen_w
+        dy = (point[1] - self._last[1]) * self.gain * self.screen_h
+        self.cursor_x = int(round(_clamp(self.cursor_x + dx, 0, self.screen_w)))
+        self.cursor_y = int(round(_clamp(self.cursor_y + dy, 0, self.screen_h)))
+        self._last = point
+        return (self.cursor_x, self.cursor_y)
+
+    def reset(self):
+        self._last = None
