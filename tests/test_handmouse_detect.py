@@ -133,3 +133,15 @@ def test_detect_u_sign_false_for_wrong_handedness():
     hand = make_u_hand()
     # Same coords but the opposite handedness => palm-facing check rejects.
     assert detect.detect_u_sign(hand, "Right") is False
+
+
+def test_thumb_touch_false_when_thumb_tucked():
+    hand = make_u_hand()
+    assert detect.thumb_touch(hand) is False
+
+
+def test_thumb_touch_true_when_thumb_pad_near_index_base():
+    hand = make_u_hand()
+    # Move the thumb tip onto the index MCP (knuckle/base), index still straight.
+    hand[detect.THUMB_TIP] = LM(0.45, 0.60)
+    assert detect.thumb_touch(hand) is True

@@ -110,6 +110,21 @@ def palm_facing(landmarks, handedness):
     return hand_normal_z(landmarks) * sign > 0
 
 
+THUMB_TOUCH_RATIO = 0.2  # thumb tip within this * hand_scale of the index base
+
+
+def thumb_touch(landmarks):
+    """True when the thumb pad rests on the side/base of the index finger
+    (near its MCP). Engages scroll while index + middle stay straight, so it
+    never collides with the bend-based clicks."""
+    if not landmarks or len(landmarks) < 21:
+        return False
+    t = landmarks[THUMB_TIP]
+    base = landmarks[INDEX_MCP]
+    d = math.hypot(t.x - base.x, t.y - base.y)
+    return d < hand_scale(landmarks) * THUMB_TOUCH_RATIO
+
+
 def detect_u_sign(landmarks, handedness):
     """Strict U pose used to ENTER pointer mode: index + middle extended and
     held together, ring + pinky curled, palm facing the camera."""
