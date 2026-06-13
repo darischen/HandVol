@@ -110,7 +110,7 @@ def palm_facing(landmarks, handedness):
     return hand_normal_z(landmarks) * sign > 0
 
 
-THUMB_EXTEND_RATIO = 2.0  # thumb tip this much farther from wrist than its MCP
+THUMB_EXTEND_RATIO = 1.68  # thumb tip this much farther from wrist than its MCP
 
 
 def thumb_extension_ratio(landmarks):

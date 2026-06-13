@@ -76,9 +76,9 @@ def parse_args():
     p.add_argument("--click-release", type=float, default=1.0,
                    help="Fingertip-curl ratio above which a click releases "
                         "(default 1.0)")
-    p.add_argument("--scroll-thumb-ratio", type=float, default=2.0,
+    p.add_argument("--scroll-thumb-ratio", type=float, default=1.68,
                    help="Thumb extension ratio above which scroll engages. "
-                        "Higher = thumb must be raised more (default 2.0)")
+                        "Higher = thumb must be raised more (default 1.68)")
     return p.parse_args()
 
 
