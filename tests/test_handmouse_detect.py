@@ -145,3 +145,14 @@ def test_thumb_touch_true_when_thumb_pad_near_index_base():
     # Move the thumb tip onto the index MCP (knuckle/base), index still straight.
     hand[detect.THUMB_TIP] = LM(0.45, 0.60)
     assert detect.thumb_touch(hand) is True
+
+
+from handvol import capture
+
+
+def test_resolve_hand_labels_u_sign_before_victory():
+    hand = make_u_hand()
+    # MediaPipe would call a two-finger pose "Victory"; our U detector wins.
+    name, score = capture._resolve_hand(hand, "Left", "Victory", 0.9)
+    assert name == "U_sign"
+    assert score == 1.0

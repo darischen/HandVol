@@ -8,6 +8,8 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 
+from handvol.handmouse import detect as hm_detect
+
 
 MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "gesture_recognizer.task"
 
@@ -166,6 +168,8 @@ def _resolve_hand(landmarks, handedness, mp_name, mp_score):
     called it Open_Palm."""
     if _detect_ok_sign(landmarks):
         return "OK_sign", 1.0
+    if hm_detect.detect_u_sign(landmarks, handedness):
+        return "U_sign", 1.0
     side = _detect_side_thumb(landmarks, handedness)
     if side is not None:
         return side, 1.0
