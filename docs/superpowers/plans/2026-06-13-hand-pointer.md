@@ -1780,3 +1780,16 @@ git commit -m "tune(handmouse): adjust pointer constants from smoke test"
 - **Spec coverage:** anchor at knuckles (Task 1-2), axis projection method A (Task 2), both mappers default absolute (Tasks 7-8, 15), primary monitor as config (Task 15), active region (Task 7), PIP-angle clicks with Schmitt trigger (Tasks 3, 9), faithful button up/down for click/double/drag (Task 10, 15), thumb-touch scroll (Tasks 5, 10), U-sign detection with tilt tolerance and backward rejection (Task 4), POINTER state sticky across click poses (Task 12), OS injection with multi-monitor math (Task 11), CLI flags (Task 15), overlay (Task 14), tests per module. Method B (latched offset) is intentionally deferred as a documented fallback and is not a task.
 - **Placeholder note:** No "TBD"/"TODO"/"similar to" placeholders. Tasks 14 and 15 (overlay and threaded entry point) have no unit tests by design, matching the codebase convention that `overlay.py` and `handvol.pyw` are untested; both are verified in the Task 16 manual smoke test.
 - **Type consistency:** `PointerAction(move, left_edge, right_edge, scroll)` is produced in Task 10 and consumed in Task 15. `Mouse` methods (`move_to`, `left_down/up`, `right_down/up`, `scroll`) match between Tasks 11 and 15. `AbsoluteMapper`/`RelativeMapper.map(point, just_acquired)` match between Tasks 7-8 and 10.
+
+---
+
+## Task 17: Post-implementation review fixes
+
+After Tasks 1-15, a whole-feature code review surfaced two correctness/UX issues that the per-module unit tests could not catch. Both are fixed.
+
+- **Release held buttons when scroll engages.** If you bend a finger (button down) and then touch the thumb to scroll before releasing, the button stayed physically down until pointer-mode exit. `HandPointer.process` now emits an "up" edge and resets the bend trigger for any held button on the frame scroll engages. Covered by `test_scroll_engage_releases_a_held_button` in `tests/test_pointer.py`.
+- **Sync relative mode to the real cursor on entry.** `RelativeMapper` started from screen center, so the first relative-mode move ignored the OS cursor's actual position. Added `mouse.get_cursor_pos()` (ctypes `GetCursorPos`) and, in the `ENTER_POINTER` dispatch, `RelativeMapper.set_cursor(...)` is now called with the real cursor converted to monitor-local coords.
+
+A third review item (relative-mode responsiveness scales with screen resolution because gain multiplies a normalized delta by `screen_w`) is a tuning value, not a bug. Adjust `--pointer-gain` during the Task 16 smoke test.
+
+Final state: 83 tests passing.
