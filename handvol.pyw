@@ -159,7 +159,7 @@ def make_mic_image():
     return img
 
 
-def capture_loop(args, show_evt, worker_stop, icon, request_pause):
+def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode):
     """Runs on a worker thread. Owns the camera, the model, and (when toggled
     on) the OpenCV window. cv2 + overlay are imported here so we only pay the
     cost when the worker actually starts. worker_stop is signaled both for
@@ -177,19 +177,39 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
 
     # Hand pointer setup. Target the primary monitor for now; the Monitor is a
     # config value so a runtime monitor-switch gesture can change it later.
+    # `pointer_mode` is a shared holder the tray menu flips between
+    # "absolute" and "relative"; the loop rebuilds the mapper when it changes.
     hand_pointer = None
     pointer_mouse = None
+    build_mapper = None
+
+    def _sync_relative_to_cursor(mapper):
+        """Best-effort: start a relative mapper from the real OS cursor."""
+        if pointer_mouse is None:
+            return
+        try:
+            gx, gy = hm_mouse.get_cursor_pos()
+            mapper.set_cursor(gx - pointer_mouse.monitor.left,
+                              gy - pointer_mouse.monitor.top)
+        except Exception:
+            pass
+
     if not args.no_pointer:
         try:
             monitor = hm_mouse.get_primary_monitor()
             virt = hm_mouse.get_virtual_screen()
             pointer_mouse = hm_mouse.Mouse(monitor, virt)
-            if args.pointer_mode == "relative":
-                mapper = RelativeMapper(monitor.width, monitor.height,
-                                        gain=args.pointer_gain)
-            else:
-                mapper = AbsoluteMapper(monitor.width, monitor.height,
-                                        active=args.pointer_margin)
+
+            def build_mapper(mode):
+                if mode == "relative":
+                    return RelativeMapper(monitor.width, monitor.height,
+                                          gain=args.pointer_gain)
+                return AbsoluteMapper(monitor.width, monitor.height,
+                                      active=args.pointer_margin)
+
+            mapper = build_mapper(pointer_mode["mode"])
+            if isinstance(mapper, RelativeMapper):
+                _sync_relative_to_cursor(mapper)
             hand_pointer = HandPointer(mapper, k=args.pointer_k,
                                        scroll_gain=args.scroll_gain,
                                        scroll_invert=args.scroll_invert,
@@ -230,6 +250,16 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
             frame, latest = source.read()
             if frame is None:
                 break
+
+            # Apply a tray-requested pointer-mode switch by rebuilding the
+            # mapper. Cheap equality check each frame; only acts on a change.
+            if hand_pointer is not None and build_mapper is not None:
+                want_relative = pointer_mode["mode"] == "relative"
+                if want_relative != isinstance(hand_pointer.mapper, RelativeMapper):
+                    hand_pointer.mapper = build_mapper(pointer_mode["mode"])
+                    if want_relative:
+                        _sync_relative_to_cursor(hand_pointer.mapper)
+                    hand_pointer.acquire()
 
             gesture, score, landmarks, all_landmarks = (
                 latest if latest else ("None", 0.0, None, [])
@@ -551,12 +581,15 @@ def main():
     # without nonlocal gymnastics.
     paused = {"v": False}
     worker_state = {"stop": None, "thread": None}
+    # Shared pointer mode the tray menu flips; the worker reads it each frame.
+    pointer_mode = {"mode": args.pointer_mode}
 
     def start_worker():
         worker_state["stop"] = threading.Event()
         worker_state["thread"] = threading.Thread(
             target=capture_loop,
-            args=(args, show_evt, worker_state["stop"], icon, lambda: on_pause(icon, None)),
+            args=(args, show_evt, worker_state["stop"], icon,
+                  lambda: on_pause(icon, None), pointer_mode),
             daemon=True)
         worker_state["thread"].start()
 
@@ -595,6 +628,11 @@ def main():
         # triggered by the gesture rather than a click.
         icon.update_menu()
 
+    def on_toggle_trackpad(icon, item):
+        pointer_mode["mode"] = (
+            "absolute" if pointer_mode["mode"] == "relative" else "relative")
+        icon.update_menu()
+
     def on_quit(icon, item):
         stop_worker()
         icon.stop()
@@ -602,6 +640,8 @@ def main():
     menu = Menu(
         MenuItem("Show preview", on_toggle, default=True,
                  checked=lambda item: show_evt.is_set()),
+        MenuItem("Trackpad mode", on_toggle_trackpad,
+                 checked=lambda item: pointer_mode["mode"] == "relative"),
         MenuItem("Pause", on_pause,
                  checked=lambda item: paused["v"]),
         MenuItem("Quit", on_quit),
