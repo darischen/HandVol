@@ -114,3 +114,63 @@ def test_bend_trigger_no_chatter_in_band():
     t.update(170)
     states = [t.update(a) for a in (105, 110, 115, 120, 125)]
     assert states == [False, False, False, False, False]  # never engaged in band
+
+
+from handvol.handmouse.pointer import HandPointer, PointerAction
+from test_handmouse_detect import make_u_hand, LM
+
+
+def _mapper_stub():
+    return AbsoluteMapper(screen_w=1000, screen_h=1000, active=0.65)
+
+
+def test_process_returns_move_with_no_click_for_plain_u():
+    hp = HandPointer(_mapper_stub(), k=1.0)
+    hp.acquire()
+    action = hp.process(make_u_hand(), t=0.0)
+    assert isinstance(action, PointerAction)
+    assert action.move is not None
+    assert action.left_edge is None
+    assert action.right_edge is None
+    assert action.scroll == 0
+
+
+def test_process_emits_left_down_then_up_on_index_bend_cycle():
+    hp = HandPointer(_mapper_stub(), k=1.0)
+    hp.acquire()
+    hp.process(make_u_hand(), t=0.0)             # straight baseline
+    bent = make_u_hand()
+    bent[7] = LM(0.45, 0.55)                       # index dip
+    bent[8] = LM(0.47, 0.62)                       # index tip folded
+    a_down = hp.process(bent, t=0.033)
+    assert a_down.left_edge == "down"
+    a_hold = hp.process(bent, t=0.066)
+    assert a_hold.left_edge is None               # held, no repeat (drag)
+    a_up = hp.process(make_u_hand(), t=0.099)     # straighten
+    assert a_up.left_edge == "up"
+
+
+def test_process_scrolls_and_suppresses_clicks_while_thumb_touches():
+    hp = HandPointer(_mapper_stub(), k=1.0)
+    hp.acquire()
+    touch = make_u_hand()
+    touch[4] = LM(0.45, 0.60)                      # thumb on index base
+    hp.process(touch, t=0.0)                        # establish scroll anchor
+    # Hand moves up while the thumb stays on the index base (still scrolling).
+    moved = [LM(p.x, p.y - 0.1, p.z) for p in touch]
+    action = hp.process(moved, t=0.033)
+    assert action.move is None                      # no cursor move while scrolling
+    assert action.left_edge is None
+    assert action.scroll != 0
+
+
+def test_release_sends_up_for_held_button():
+    hp = HandPointer(_mapper_stub(), k=1.0)
+    hp.acquire()
+    hp.process(make_u_hand(), t=0.0)
+    bent = make_u_hand()
+    bent[7] = LM(0.45, 0.55)
+    bent[8] = LM(0.47, 0.62)
+    hp.process(bent, t=0.033)                       # left down (held)
+    ups = hp.release()
+    assert ("left", "up") in ups

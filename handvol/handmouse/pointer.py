@@ -139,3 +139,101 @@ class BendTrigger:
 
     def reset(self):
         self.bent = False
+
+
+from collections import namedtuple
+
+from handvol.handmouse import detect
+
+PointerAction = namedtuple("PointerAction", "move left_edge right_edge scroll")
+
+SCROLL_GAIN = 800.0  # wheel ticks per unit of normalized vertical travel
+
+
+class HandPointer:
+    """Turns per-frame landmarks into a PointerAction: where to move, click
+    edges (down/up transitions), and scroll ticks. Holds smoothing filters, the
+    active screen mapper, bend triggers, and scroll state. Clicks are derived
+    from PIP geometry, never from gesture labels."""
+
+    def __init__(self, mapper, k=1.0, scroll_invert=False):
+        self.mapper = mapper
+        self.k = k
+        self.scroll_invert = scroll_invert
+        self._fx = OneEuroFilter(min_cutoff=1.0, beta=0.7, d_cutoff=1.0)
+        self._fy = OneEuroFilter(min_cutoff=1.0, beta=0.7, d_cutoff=1.0)
+        self._index = BendTrigger()
+        self._middle = BendTrigger()
+        self._just_acquired = True
+        self._scroll_anchor_y = None
+        self._left_down = False
+        self._right_down = False
+
+    def acquire(self):
+        """Call when (re)entering pointer mode: reset smoothing, clutch, and
+        click state so a fresh pose does not inherit stale deltas."""
+        self._fx.reset()
+        self._fy.reset()
+        self._index.reset()
+        self._middle.reset()
+        self.mapper.reset()
+        self._just_acquired = True
+        self._scroll_anchor_y = None
+
+    def process(self, landmarks, t):
+        px, py = detect.projected_point(landmarks, k=self.k)
+        sx = self._fx(px, t)
+        sy = self._fy(py, t)
+
+        if detect.thumb_touch(landmarks):
+            if self._scroll_anchor_y is None:
+                self._scroll_anchor_y = sy
+                return PointerAction(None, None, None, 0)
+            delta = self._scroll_anchor_y - sy  # hand up (smaller y) -> positive
+            self._scroll_anchor_y = sy
+            ticks = int(round(delta * SCROLL_GAIN))
+            if self.scroll_invert:
+                ticks = -ticks
+            return PointerAction(None, None, None, ticks)
+
+        self._scroll_anchor_y = None
+
+        index_angle = detect.pip_angle(
+            landmarks, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
+        middle_angle = detect.pip_angle(
+            landmarks, detect.MIDDLE_MCP, detect.MIDDLE_PIP, detect.MIDDLE_TIP)
+        left_edge = self._edge(self._index, index_angle, "left")
+        right_edge = self._edge(self._middle, middle_angle, "right")
+
+        move = self.mapper.map((sx, sy), self._just_acquired)
+        self._just_acquired = False
+        return PointerAction(move, left_edge, right_edge, 0)
+
+    def _edge(self, trigger, angle, button):
+        was = trigger.bent
+        now = trigger.update(angle)
+        if now and not was:
+            if button == "left":
+                self._left_down = True
+            else:
+                self._right_down = True
+            return "down"
+        if was and not now:
+            if button == "left":
+                self._left_down = False
+            else:
+                self._right_down = False
+            return "up"
+        return None
+
+    def release(self):
+        """On pointer-mode exit, return up-edges for any buttons still held so a
+        click cannot get stuck down."""
+        ups = []
+        if self._left_down:
+            ups.append(("left", "up"))
+            self._left_down = False
+        if self._right_down:
+            ups.append(("right", "up"))
+            self._right_down = False
+        return ups
