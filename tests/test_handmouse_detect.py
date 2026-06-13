@@ -83,3 +83,18 @@ def test_projected_point_is_stable_when_a_fingertip_bends():
     p_bent = detect.projected_point(bent, k=1.0)
     # Cursor barely moves because it is built from wrist + knuckles, not tips.
     assert math.hypot(p_bent[0] - p_straight[0], p_bent[1] - p_straight[1]) < 0.01
+
+
+def test_pip_angle_straight_finger_near_180():
+    hand = make_u_hand()
+    angle = detect.pip_angle(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
+    assert angle > 150
+
+
+def test_pip_angle_bent_finger_is_small():
+    hand = make_u_hand()
+    # Curl the index: tip folds back toward the MCP.
+    hand[detect.INDEX_DIP] = LM(0.45, 0.55)
+    hand[detect.INDEX_TIP] = LM(0.47, 0.62)
+    angle = detect.pip_angle(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
+    assert angle < 110

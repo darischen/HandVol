@@ -45,3 +45,21 @@ def projected_point(landmarks, k=1.0):
     ax, ay = hand_axis(landmarks)
     scale = hand_scale(landmarks)
     return (mx + ax * k * scale, my + ay * k * scale)
+
+
+def pip_angle(landmarks, mcp_idx, pip_idx, tip_idx):
+    """Angle in degrees at the PIP joint, between the bones MCP->PIP and
+    PIP->TIP. A straight finger is near 180 degrees; a bent finger drops well
+    below. Angle-based, so it reads the same across hand tilt and hand size."""
+    mcp = landmarks[mcp_idx]
+    pip = landmarks[pip_idx]
+    tip = landmarks[tip_idx]
+    v1x, v1y = mcp.x - pip.x, mcp.y - pip.y
+    v2x, v2y = tip.x - pip.x, tip.y - pip.y
+    n1 = math.hypot(v1x, v1y)
+    n2 = math.hypot(v2x, v2y)
+    if n1 == 0 or n2 == 0:
+        return 180.0
+    cos = (v1x * v2x + v1y * v2y) / (n1 * n2)
+    cos = max(-1.0, min(1.0, cos))
+    return math.degrees(math.acos(cos))
