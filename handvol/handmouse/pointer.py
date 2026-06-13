@@ -186,15 +186,26 @@ class HandPointer:
         sy = self._fy(py, t)
 
         if detect.thumb_touch(landmarks):
+            # Engaging scroll releases any button still held from a click/drag,
+            # so a button cannot stay down while scrolling.
+            left_edge = right_edge = None
+            if self._left_down:
+                self._left_down = False
+                self._index.reset()
+                left_edge = "up"
+            if self._right_down:
+                self._right_down = False
+                self._middle.reset()
+                right_edge = "up"
             if self._scroll_anchor_y is None:
                 self._scroll_anchor_y = sy
-                return PointerAction(None, None, None, 0)
+                return PointerAction(None, left_edge, right_edge, 0)
             delta = self._scroll_anchor_y - sy  # hand up (smaller y) -> positive
             self._scroll_anchor_y = sy
             ticks = int(round(delta * SCROLL_GAIN))
             if self.scroll_invert:
                 ticks = -ticks
-            return PointerAction(None, None, None, ticks)
+            return PointerAction(None, left_edge, right_edge, ticks)
 
         self._scroll_anchor_y = None
 

@@ -174,3 +174,22 @@ def test_release_sends_up_for_held_button():
     hp.process(bent, t=0.033)                       # left down (held)
     ups = hp.release()
     assert ("left", "up") in ups
+
+
+def test_scroll_engage_releases_a_held_button():
+    hp = HandPointer(_mapper_stub(), k=1.0)
+    hp.acquire()
+    hp.process(make_u_hand(), t=0.0)              # straight baseline
+    bent = make_u_hand()
+    bent[7] = LM(0.45, 0.55)                       # index dip
+    bent[8] = LM(0.47, 0.62)                       # index tip folded
+    down = hp.process(bent, t=0.033)
+    assert down.left_edge == "down"               # left button held
+    # Now touch the thumb to the index base to start scrolling, hand still U.
+    touch = make_u_hand()
+    touch[4] = LM(0.45, 0.60)                      # thumb on index base
+    action = hp.process(touch, t=0.066)
+    assert action.left_edge == "up"               # held button released on scroll engage
+    assert action.move is None
+    # And it is not still considered held.
+    assert hp.release() == []

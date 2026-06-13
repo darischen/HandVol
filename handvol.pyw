@@ -243,6 +243,14 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                 pointer_point = None
                 if hand_pointer is not None:
                     hand_pointer.acquire()
+                    if isinstance(hand_pointer.mapper, RelativeMapper) and pointer_mouse is not None:
+                        try:
+                            gx, gy = hm_mouse.get_cursor_pos()
+                            hand_pointer.mapper.set_cursor(
+                                gx - pointer_mouse.monitor.left,
+                                gy - pointer_mouse.monitor.top)
+                        except Exception:
+                            pass
 
             elif event is Event.POINTER_UPDATE:
                 if hand_pointer is not None and pointer_mouse is not None and landmarks is not None:
