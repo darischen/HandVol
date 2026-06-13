@@ -60,3 +60,26 @@ def test_hand_axis_points_from_wrist_toward_fingers_and_is_unit_length():
     assert math.isclose(math.hypot(ax, ay), 1.0, rel_tol=1e-9)
     # Fingers are above the wrist (smaller y), so the axis points up (ay < 0).
     assert ay < 0
+
+
+def test_projected_point_lands_ahead_of_mcp_toward_fingers():
+    hand = make_u_hand()
+    mx, my = detect.mcp_midpoint(hand)
+    px, py = detect.projected_point(hand, k=1.0)
+    # The projected point sits beyond the MCP midpoint in the finger direction
+    # (upward => smaller y), i.e. nearer the fingertips.
+    assert py < my
+    # It stays roughly under the fingers horizontally.
+    assert abs(px - mx) < 0.1
+
+
+def test_projected_point_is_stable_when_a_fingertip_bends():
+    straight = make_u_hand()
+    bent = make_u_hand()
+    # Simulate a left-click: curl the index tip down toward the palm.
+    bent[detect.INDEX_TIP] = LM(0.45, 0.55)
+    bent[detect.INDEX_DIP] = LM(0.45, 0.58)
+    p_straight = detect.projected_point(straight, k=1.0)
+    p_bent = detect.projected_point(bent, k=1.0)
+    # Cursor barely moves because it is built from wrist + knuckles, not tips.
+    assert math.hypot(p_bent[0] - p_straight[0], p_bent[1] - p_straight[1]) < 0.01

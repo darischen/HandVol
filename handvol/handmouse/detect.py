@@ -34,3 +34,14 @@ def hand_axis(landmarks):
     if length == 0:
         return (0.0, -1.0)
     return (dx / length, dy / length)
+
+
+def projected_point(landmarks, k=1.0):
+    """Cursor point in normalized frame coords. Starts at the MCP midpoint and
+    projects forward along the hand axis by k * hand_scale, so it sits up near
+    the fingertips while being computed only from the wrist and knuckles. This
+    keeps it steady when a fingertip curls to click."""
+    mx, my = mcp_midpoint(landmarks)
+    ax, ay = hand_axis(landmarks)
+    scale = hand_scale(landmarks)
+    return (mx + ax * k * scale, my + ay * k * scale)
