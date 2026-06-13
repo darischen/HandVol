@@ -93,13 +93,13 @@ def draw_lock_state(frame, locked):
     _put(frame, text, (w - tw - 12, 84), color, 0.6, 2)
 
 
-def draw_active_region(frame, active=0.65):
-    """Dashed-looking rectangle marking the camera sub-region mapped to the
-    screen in absolute pointer mode."""
+def draw_active_region(frame, active=0.65, lift=0.0):
+    """Rectangle marking the camera sub-region mapped to the screen in absolute
+    pointer mode. `lift` shifts it up to match the mapper's vertical offset."""
     h, w = frame.shape[:2]
     lo = (1 - active) / 2
-    x0, y0 = int(lo * w), int(lo * h)
-    x1, y1 = int((1 - lo) * w), int((1 - lo) * h)
+    x0, x1 = int(lo * w), int((1 - lo) * w)
+    y0, y1 = int((lo - lift) * h), int((1 - lo - lift) * h)
     cv2.rectangle(frame, (x0, y0), (x1, y1), CYAN, 1, cv2.LINE_AA)
 
 

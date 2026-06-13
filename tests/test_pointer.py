@@ -54,6 +54,17 @@ def test_absolute_active_region_edge_maps_to_screen_edge():
     assert (x1, y1) == (1920, 1080)
 
 
+def test_absolute_lift_shifts_active_region_up():
+    m = AbsoluteMapper(screen_w=1000, screen_h=1000, active=0.65, lift=0.15)
+    # Screen bottom now maps to a higher (smaller-y) hand position than the
+    # un-lifted 0.825, making the taskbar easier to reach.
+    _, y = m.map((0.5, 0.825 - 0.15), just_acquired=False)
+    assert y == 1000
+    # Frame center now maps below screen center because the box moved up.
+    _, yc = m.map((0.5, 0.5), just_acquired=False)
+    assert yc > 500
+
+
 def test_absolute_clamps_outside_active_region():
     m = AbsoluteMapper(screen_w=1920, screen_h=1080, active=0.65)
     x, y = m.map((0.0, 0.0), just_acquired=False)

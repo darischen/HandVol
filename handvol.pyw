@@ -58,6 +58,10 @@ def parse_args():
     p.add_argument("--pointer-margin", type=float, default=0.65,
                    help="Absolute-mode active region as a fraction of the frame "
                         "(default 0.65)")
+    p.add_argument("--pointer-lift", type=float, default=0.15,
+                   help="Shift the absolute active region up by this fraction of "
+                        "the frame so the screen bottom is easier to reach "
+                        "(default 0.15)")
     p.add_argument("--pointer-gain", type=float, default=2.0,
                    help="Relative-mode cursor gain (default 2.0)")
     p.add_argument("--pointer-k", type=float, default=1.0,
@@ -205,7 +209,8 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
                     return RelativeMapper(monitor.width, monitor.height,
                                           gain=args.pointer_gain)
                 return AbsoluteMapper(monitor.width, monitor.height,
-                                      active=args.pointer_margin)
+                                      active=args.pointer_margin,
+                                      lift=args.pointer_lift)
 
             mapper = build_mapper(pointer_mode["mode"])
             if isinstance(mapper, RelativeMapper):
@@ -512,7 +517,8 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
                             frame, st.scroll_anchor_y, st.point[1], st.point[0])
                     elif st.point is not None:
                         if isinstance(hand_pointer.mapper, AbsoluteMapper):
-                            draw_active_region(frame, args.pointer_margin)
+                            draw_active_region(frame, args.pointer_margin,
+                                               args.pointer_lift)
                         draw_pointer(
                             frame, st.point,
                             left_bent=st.left_bent,
