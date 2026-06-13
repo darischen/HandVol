@@ -98,3 +98,38 @@ def test_pip_angle_bent_finger_is_small():
     hand[detect.INDEX_TIP] = LM(0.47, 0.62)
     angle = detect.pip_angle(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
     assert angle < 110
+
+
+def test_hand_normal_z_flips_sign_when_hand_is_mirrored():
+    hand = make_u_hand()
+    z = detect.hand_normal_z(hand)
+    mirrored = [LM(1.0 - lm.x, lm.y, lm.z) for lm in hand]
+    zm = detect.hand_normal_z(mirrored)
+    assert (z > 0) != (zm > 0)
+
+
+def test_detect_u_sign_true_for_canonical_u():
+    hand = make_u_hand()
+    # In this mirrored selfie pipeline MediaPipe labels the user's right hand
+    # as "Left" (same convention capture.py's side-thumb detector relies on).
+    assert detect.detect_u_sign(hand, "Left") is True
+
+
+def test_detect_u_sign_false_when_fingers_spread_like_victory():
+    hand = make_u_hand()
+    # Spread the tips far apart -> Victory, not U.
+    hand[detect.INDEX_TIP] = LM(0.30, 0.25)
+    hand[detect.MIDDLE_TIP] = LM(0.70, 0.25)
+    assert detect.detect_u_sign(hand, "Left") is False
+
+
+def test_detect_u_sign_false_when_ring_extended():
+    hand = make_u_hand()
+    hand[detect.RING_TIP] = LM(0.60, 0.25)  # ring now extended
+    assert detect.detect_u_sign(hand, "Left") is False
+
+
+def test_detect_u_sign_false_for_wrong_handedness():
+    hand = make_u_hand()
+    # Same coords but the opposite handedness => palm-facing check rejects.
+    assert detect.detect_u_sign(hand, "Right") is False
