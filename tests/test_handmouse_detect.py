@@ -86,20 +86,26 @@ def test_projected_point_is_stable_when_a_fingertip_bends():
     assert math.hypot(p_bent[0] - p_straight[0], p_bent[1] - p_straight[1]) < 0.01
 
 
-def test_fingertip_curl_straight_finger_above_one():
+def test_fingertip_curl_straight_finger_near_two():
     hand = make_u_hand()
     ratio = detect.fingertip_curl(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
-    assert ratio > 1.0
+    assert ratio > 1.7
 
 
-def test_fingertip_curl_hooked_top_is_small():
+def test_fingertip_curl_shrinks_monotonically_as_finger_curls():
     hand = make_u_hand()
-    # Half-bend: the top of the finger hooks so tip/dip/pip cluster while the
-    # MCP->PIP base stays straight.
+    straight = detect.fingertip_curl(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
+    # Gentle hook: tip near the PIP.
     hand[detect.INDEX_DIP] = LM(0.45, 0.47)
     hand[detect.INDEX_TIP] = LM(0.45, 0.46)
-    ratio = detect.fingertip_curl(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
-    assert ratio < 0.5
+    hook = detect.fingertip_curl(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
+    # Deeper curl: tip down near the MCP. The metric must keep shrinking, not
+    # rise again (the old tip-to-PIP metric failed here and dropped clicks).
+    hand[detect.INDEX_DIP] = LM(0.45, 0.55)
+    hand[detect.INDEX_TIP] = LM(0.45, 0.60)
+    deep = detect.fingertip_curl(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
+    assert straight > hook > deep
+    assert hook < 1.5
 
 
 def test_hand_normal_z_flips_sign_when_hand_is_mirrored():
@@ -158,3 +164,20 @@ def test_resolve_hand_labels_u_sign_before_victory():
     name, score = capture._resolve_hand(hand, "Left", "Victory", 0.9)
     assert name == "U_sign"
     assert score == 1.0
+
+
+def test_middle_finger_detected_for_real_middle_finger():
+    hand = make_u_hand()
+    # Curl the index down to the palm so only the middle stays up.
+    hand[detect.INDEX_DIP] = LM(0.45, 0.58)
+    hand[detect.INDEX_TIP] = LM(0.45, 0.62)
+    assert capture._detect_middle_finger(hand) is True
+
+
+def test_half_bent_index_is_not_middle_finger():
+    hand = make_u_hand()
+    # Left-click hook: index top hooks but the base stays up, so the tip stays
+    # far from the wrist. This must NOT register as a raised middle finger.
+    hand[detect.INDEX_DIP] = LM(0.45, 0.47)
+    hand[detect.INDEX_TIP] = LM(0.45, 0.46)
+    assert capture._detect_middle_finger(hand) is False

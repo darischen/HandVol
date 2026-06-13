@@ -97,11 +97,32 @@ def _detect_four_fingers(landmarks):
     return i and m and r and p and not t
 
 
+MIDDLE_FINGER_CURL_RATIO = 1.3   # index/ring/pinky tips must stay within this * mcp distance
+MIDDLE_FINGER_EXTEND_RATIO = 1.5  # middle tip must exceed this * its mcp distance
+
+
 def _detect_middle_finger(landmarks):
     if not landmarks or len(landmarks) < 21:
         return False
     _, i, m, r, p = _finger_states(landmarks)
-    return m and not i and not r and not p
+    if not (m and not i and not r and not p):
+        return False
+    # Stricter than the y-only check above: require the index, ring, and pinky
+    # to be clearly curled (tip near the wrist), not just barely below their
+    # PIP. A half-bent index during a left click (base still straight up) keeps
+    # its tip far from the wrist, so this stops it being read as a raised
+    # middle finger. Distance ratios stay tilt-invariant.
+    wrist = landmarks[0]
+
+    def _dist(idx):
+        return math.hypot(landmarks[idx].x - wrist.x, landmarks[idx].y - wrist.y)
+
+    for mcp_idx, tip_idx in ((5, 8), (13, 16), (17, 20)):
+        if _dist(tip_idx) > _dist(mcp_idx) * MIDDLE_FINGER_CURL_RATIO:
+            return False
+    if _dist(12) < _dist(9) * MIDDLE_FINGER_EXTEND_RATIO:
+        return False
+    return True
 
 
 def _detect_ok_sign(landmarks):

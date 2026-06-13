@@ -157,13 +157,12 @@ PointerStatus = namedtuple(
     "point left_bent right_bent scrolling scroll_anchor_y index_curl middle_curl "
     "thumb_ratio")
 
-# Fingertip-curl ratios for the Schmitt click trigger. The finger reads "bent"
-# (button down) once the tip/dip/pip hook below CURL_ENGAGE and "straight"
-# (button up) again above CURL_RELEASE. A straight finger is ~1.3, so the band
-# sits comfortably below that to fire on a gentle half-bend without the resting
-# finger ever counting as bent.
-CURL_ENGAGE = 0.8
-CURL_RELEASE = 1.0
+# Fingertip-curl ratios for the Schmitt click trigger (tip-to-MCP over base).
+# A straight finger is ~2; the ratio falls as the finger curls. The finger
+# reads "bent" (button down) below CURL_ENGAGE and "straight" (button up) above
+# CURL_RELEASE, with the band well under 2 so a resting finger never fires.
+CURL_ENGAGE = 1.5
+CURL_RELEASE = 1.7
 
 # Wheel notches per unit of normalized displacement per second. Scroll is a
 # velocity: the farther the hand sits from the anchor set when scrolling began,

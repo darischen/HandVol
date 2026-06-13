@@ -49,20 +49,21 @@ def projected_point(landmarks, k=1.0):
 
 
 def fingertip_curl(landmarks, mcp_idx, pip_idx, tip_idx):
-    """Ratio of the tip-to-PIP distance over the PIP-to-MCP base length.
+    """Ratio of the tip-to-MCP distance over the PIP-to-MCP base length.
 
-    A straight finger is ~1.3 or higher; the ratio drops well below 1 when the
-    top of the finger hooks (tip, dip, pip cluster together) while the MCP->PIP
-    base segment stays straight. This detects a comfortable fingertip half-bend
-    rather than a full fist curl. Scale- and tilt-invariant because it is a
-    ratio of two bone-length distances."""
+    A straight finger is ~2 (tip is two bone-lengths from the knuckle) and the
+    ratio shrinks monotonically as the finger curls and the tip approaches the
+    MCP, so both a gentle hook and a deeper curl register. Using tip-to-MCP
+    (not tip-to-PIP) matters: tip-to-PIP grows again once the finger curls past
+    the PIP, which dropped clicks on a firmer bend. Scale- and tilt-invariant
+    because it is a ratio of two distances."""
     mcp = landmarks[mcp_idx]
     pip = landmarks[pip_idx]
     tip = landmarks[tip_idx]
     base = math.hypot(pip.x - mcp.x, pip.y - mcp.y)
     if base == 0:
         return 999.0
-    return math.hypot(tip.x - pip.x, tip.y - pip.y) / base
+    return math.hypot(tip.x - mcp.x, tip.y - mcp.y) / base
 
 
 EXTEND_RATIO = 1.6   # tip must be this much farther from wrist than its MCP
