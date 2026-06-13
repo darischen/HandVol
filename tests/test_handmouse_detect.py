@@ -13,14 +13,15 @@ class LM:
 
 def make_u_hand():
     """An upright right hand making the ASL 'U': index + middle extended and
-    together, ring + pinky curled, thumb tucked to the side (not touching).
+    together, ring + pinky curled, thumb tucked down against the hand (not
+    raised, so it does not engage scroll).
     Coordinates are normalized [0,1], y grows downward (image convention)."""
     return [
         LM(0.50, 0.90),  # 0 wrist
         LM(0.42, 0.80),  # 1 thumb cmc
         LM(0.38, 0.72),  # 2 thumb mcp
         LM(0.36, 0.66),  # 3 thumb ip
-        LM(0.36, 0.60),  # 4 thumb tip (tucked, away from index base)
+        LM(0.42, 0.74),  # 4 thumb tip (tucked down, close to its own MCP)
         LM(0.45, 0.60),  # 5 index mcp
         LM(0.44, 0.45),  # 6 index pip
         LM(0.43, 0.35),  # 7 index dip
@@ -85,19 +86,20 @@ def test_projected_point_is_stable_when_a_fingertip_bends():
     assert math.hypot(p_bent[0] - p_straight[0], p_bent[1] - p_straight[1]) < 0.01
 
 
-def test_pip_angle_straight_finger_near_180():
+def test_fingertip_curl_straight_finger_above_one():
     hand = make_u_hand()
-    angle = detect.pip_angle(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
-    assert angle > 150
+    ratio = detect.fingertip_curl(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
+    assert ratio > 1.0
 
 
-def test_pip_angle_bent_finger_is_small():
+def test_fingertip_curl_hooked_top_is_small():
     hand = make_u_hand()
-    # Curl the index: tip folds back toward the MCP.
-    hand[detect.INDEX_DIP] = LM(0.45, 0.55)
-    hand[detect.INDEX_TIP] = LM(0.47, 0.62)
-    angle = detect.pip_angle(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
-    assert angle < 110
+    # Half-bend: the top of the finger hooks so tip/dip/pip cluster while the
+    # MCP->PIP base stays straight.
+    hand[detect.INDEX_DIP] = LM(0.45, 0.47)
+    hand[detect.INDEX_TIP] = LM(0.45, 0.46)
+    ratio = detect.fingertip_curl(hand, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
+    assert ratio < 0.5
 
 
 def test_hand_normal_z_flips_sign_when_hand_is_mirrored():
@@ -135,16 +137,16 @@ def test_detect_u_sign_false_for_wrong_handedness():
     assert detect.detect_u_sign(hand, "Right") is False
 
 
-def test_thumb_touch_false_when_thumb_tucked():
+def test_thumb_extended_false_when_thumb_tucked():
     hand = make_u_hand()
-    assert detect.thumb_touch(hand) is False
+    assert detect.thumb_extended(hand) is False
 
 
-def test_thumb_touch_true_when_thumb_pad_near_index_base():
+def test_thumb_extended_true_when_thumb_raised():
     hand = make_u_hand()
-    # Move the thumb tip onto the index MCP (knuckle/base), index still straight.
-    hand[detect.THUMB_TIP] = LM(0.45, 0.60)
-    assert detect.thumb_touch(hand) is True
+    # Raise the thumb straight up, well beyond its own MCP from the wrist.
+    hand[detect.THUMB_TIP] = LM(0.34, 0.20)
+    assert detect.thumb_extended(hand) is True
 
 
 from handvol import capture

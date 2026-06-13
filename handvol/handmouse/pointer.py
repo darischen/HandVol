@@ -118,22 +118,22 @@ class RelativeMapper:
 
 
 class BendTrigger:
-    """Schmitt trigger over a finger's PIP angle. Becomes 'bent' only after the
-    angle drops below engage_deg, and 'straight' again only after it rises above
-    release_deg. The gap (engage < release) stops a single bend from chattering
-    into multiple click events."""
+    """Schmitt trigger over a scalar bend signal (a fingertip-curl ratio).
+    Becomes 'bent' only after the value drops below `engage`, and 'straight'
+    again only after it rises back above `release`. The gap (engage < release)
+    stops a single bend from chattering into multiple click events."""
 
-    def __init__(self, engage_deg=100.0, release_deg=130.0):
-        self.engage_deg = engage_deg
-        self.release_deg = release_deg
+    def __init__(self, engage=0.7, release=0.95):
+        self.engage = engage
+        self.release = release
         self.bent = False
 
-    def update(self, angle_deg):
+    def update(self, value):
         if self.bent:
-            if angle_deg > self.release_deg:
+            if value > self.release:
                 self.bent = False
         else:
-            if angle_deg < self.engage_deg:
+            if value < self.engage:
                 self.bent = True
         return self.bent
 
@@ -146,26 +146,45 @@ from collections import namedtuple
 from handvol.handmouse import detect
 
 PointerAction = namedtuple("PointerAction", "move left_edge right_edge scroll")
+PointerStatus = namedtuple(
+    "PointerStatus", "point left_bent right_bent scrolling scroll_anchor_y")
 
-SCROLL_GAIN = 800.0  # wheel ticks per unit of normalized vertical travel
+# Fingertip-curl ratios for the Schmitt click trigger. The finger reads "bent"
+# (button down) once the tip/dip/pip hook below CURL_ENGAGE and "straight"
+# (button up) again above CURL_RELEASE.
+CURL_ENGAGE = 0.7
+CURL_RELEASE = 0.95
+
+# Wheel notches per unit of normalized displacement per second. Scroll is a
+# velocity: the farther the hand sits from the anchor set when scrolling began,
+# the faster it scrolls. Tunable; far lower than a per-frame increment.
+SCROLL_GAIN = 60.0
 
 
 class HandPointer:
     """Turns per-frame landmarks into a PointerAction: where to move, click
     edges (down/up transitions), and scroll ticks. Holds smoothing filters, the
     active screen mapper, bend triggers, and scroll state. Clicks are derived
-    from PIP geometry, never from gesture labels."""
+    from fingertip-curl geometry, never from gesture labels. Scroll engages
+    when the thumb is raised and scrolls at a speed set by how far the hand is
+    from the anchor captured at engage time."""
 
-    def __init__(self, mapper, k=1.0, scroll_invert=False):
+    def __init__(self, mapper, k=1.0, scroll_gain=SCROLL_GAIN, scroll_invert=False):
         self.mapper = mapper
         self.k = k
+        self.scroll_gain = scroll_gain
         self.scroll_invert = scroll_invert
         self._fx = OneEuroFilter(min_cutoff=1.0, beta=0.7, d_cutoff=1.0)
         self._fy = OneEuroFilter(min_cutoff=1.0, beta=0.7, d_cutoff=1.0)
-        self._index = BendTrigger()
-        self._middle = BendTrigger()
+        self._index = BendTrigger(engage=CURL_ENGAGE, release=CURL_RELEASE)
+        self._middle = BendTrigger(engage=CURL_ENGAGE, release=CURL_RELEASE)
         self._just_acquired = True
         self._scroll_anchor_y = None
+        self._scroll_accum = 0.0
+        self._t_prev = None
+        self._sx = None
+        self._sy = None
+        self._scrolling = False
         self._left_down = False
         self._right_down = False
 
@@ -179,13 +198,22 @@ class HandPointer:
         self.mapper.reset()
         self._just_acquired = True
         self._scroll_anchor_y = None
+        self._scroll_accum = 0.0
+        self._t_prev = None
+        self._sx = None
+        self._sy = None
+        self._scrolling = False
 
     def process(self, landmarks, t):
         px, py = detect.projected_point(landmarks, k=self.k)
         sx = self._fx(px, t)
         sy = self._fy(py, t)
+        self._sx, self._sy = sx, sy
+        dt = 0.0 if self._t_prev is None else max(1e-3, t - self._t_prev)
+        self._t_prev = t
 
-        if detect.thumb_touch(landmarks):
+        if detect.thumb_extended(landmarks):
+            self._scrolling = True
             # Engaging scroll releases any button still held from a click/drag,
             # so a button cannot stay down while scrolling.
             left_edge = right_edge = None
@@ -199,30 +227,35 @@ class HandPointer:
                 right_edge = "up"
             if self._scroll_anchor_y is None:
                 self._scroll_anchor_y = sy
+                self._scroll_accum = 0.0
                 return PointerAction(None, left_edge, right_edge, 0)
-            delta = self._scroll_anchor_y - sy  # hand up (smaller y) -> positive
-            self._scroll_anchor_y = sy
-            ticks = int(round(delta * SCROLL_GAIN))
+            # Velocity: displacement from the fixed anchor sets scroll speed.
+            displacement = self._scroll_anchor_y - sy  # hand above anchor -> +
+            self._scroll_accum += displacement * self.scroll_gain * dt
+            ticks = int(self._scroll_accum)
+            self._scroll_accum -= ticks  # keep the sub-notch remainder
             if self.scroll_invert:
                 ticks = -ticks
             return PointerAction(None, left_edge, right_edge, ticks)
 
+        self._scrolling = False
         self._scroll_anchor_y = None
+        self._scroll_accum = 0.0
 
-        index_angle = detect.pip_angle(
+        index_curl = detect.fingertip_curl(
             landmarks, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
-        middle_angle = detect.pip_angle(
+        middle_curl = detect.fingertip_curl(
             landmarks, detect.MIDDLE_MCP, detect.MIDDLE_PIP, detect.MIDDLE_TIP)
-        left_edge = self._edge(self._index, index_angle, "left")
-        right_edge = self._edge(self._middle, middle_angle, "right")
+        left_edge = self._edge(self._index, index_curl, "left")
+        right_edge = self._edge(self._middle, middle_curl, "right")
 
         move = self.mapper.map((sx, sy), self._just_acquired)
         self._just_acquired = False
         return PointerAction(move, left_edge, right_edge, 0)
 
-    def _edge(self, trigger, angle, button):
+    def _edge(self, trigger, value, button):
         was = trigger.bent
-        now = trigger.update(angle)
+        now = trigger.update(value)
         if now and not was:
             if button == "left":
                 self._left_down = True
@@ -236,6 +269,13 @@ class HandPointer:
                 self._right_down = False
             return "up"
         return None
+
+    def status(self):
+        """Snapshot for the overlay: the smoothed cursor point, button-held
+        flags, and scroll state. Lets the UI draw without poking internals."""
+        point = (self._sx, self._sy) if self._sx is not None else None
+        return PointerStatus(point, self._index.bent, self._middle.bent,
+                             self._scrolling, self._scroll_anchor_y)
 
     def release(self):
         """On pointer-mode exit, return up-edges for any buttons still held so a

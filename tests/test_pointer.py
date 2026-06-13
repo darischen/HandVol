@@ -102,7 +102,7 @@ from handvol.handmouse.pointer import BendTrigger
 
 
 def test_bend_trigger_engages_below_engage_and_holds_through_hysteresis():
-    t = BendTrigger(engage_deg=100, release_deg=130)
+    t = BendTrigger(engage=100, release=130)
     assert t.update(170) is False    # straight
     assert t.update(95) is True      # crosses engage -> bent
     assert t.update(120) is True     # in the hysteresis band -> still bent
@@ -110,7 +110,7 @@ def test_bend_trigger_engages_below_engage_and_holds_through_hysteresis():
 
 
 def test_bend_trigger_no_chatter_in_band():
-    t = BendTrigger(engage_deg=100, release_deg=130)
+    t = BendTrigger(engage=100, release=130)
     t.update(170)
     states = [t.update(a) for a in (105, 110, 115, 120, 125)]
     assert states == [False, False, False, False, False]  # never engaged in band
@@ -135,13 +135,19 @@ def test_process_returns_move_with_no_click_for_plain_u():
     assert action.scroll == 0
 
 
+def _hook_index(hand):
+    """Mutate a hand so the index fingertip hooks (tip/dip cluster near the
+    pip), the half-bend the click detector looks for."""
+    hand[7] = LM(0.45, 0.47)   # index dip hooked back
+    hand[8] = LM(0.45, 0.46)   # index tip near the pip
+    return hand
+
+
 def test_process_emits_left_down_then_up_on_index_bend_cycle():
     hp = HandPointer(_mapper_stub(), k=1.0)
     hp.acquire()
     hp.process(make_u_hand(), t=0.0)             # straight baseline
-    bent = make_u_hand()
-    bent[7] = LM(0.45, 0.55)                       # index dip
-    bent[8] = LM(0.47, 0.62)                       # index tip folded
+    bent = _hook_index(make_u_hand())
     a_down = hp.process(bent, t=0.033)
     assert a_down.left_edge == "down"
     a_hold = hp.process(bent, t=0.066)
@@ -150,15 +156,15 @@ def test_process_emits_left_down_then_up_on_index_bend_cycle():
     assert a_up.left_edge == "up"
 
 
-def test_process_scrolls_and_suppresses_clicks_while_thumb_touches():
-    hp = HandPointer(_mapper_stub(), k=1.0)
+def test_process_scrolls_and_suppresses_clicks_while_thumb_raised():
+    hp = HandPointer(_mapper_stub(), k=1.0, scroll_gain=1000.0)
     hp.acquire()
-    touch = make_u_hand()
-    touch[4] = LM(0.45, 0.60)                      # thumb on index base
-    hp.process(touch, t=0.0)                        # establish scroll anchor
-    # Hand moves up while the thumb stays on the index base (still scrolling).
-    moved = [LM(p.x, p.y - 0.1, p.z) for p in touch]
-    action = hp.process(moved, t=0.033)
+    ext = make_u_hand()
+    ext[4] = LM(0.34, 0.20)                        # thumb raised -> scroll engages
+    hp.process(ext, t=0.0)                          # establish scroll anchor
+    # Hand drops below the anchor; displacement drives scroll velocity.
+    moved = [LM(p.x, p.y + 0.1, p.z) for p in ext]
+    action = hp.process(moved, t=0.1)
     assert action.move is None                      # no cursor move while scrolling
     assert action.left_edge is None
     assert action.scroll != 0
@@ -168,9 +174,7 @@ def test_release_sends_up_for_held_button():
     hp = HandPointer(_mapper_stub(), k=1.0)
     hp.acquire()
     hp.process(make_u_hand(), t=0.0)
-    bent = make_u_hand()
-    bent[7] = LM(0.45, 0.55)
-    bent[8] = LM(0.47, 0.62)
+    bent = _hook_index(make_u_hand())
     hp.process(bent, t=0.033)                       # left down (held)
     ups = hp.release()
     assert ("left", "up") in ups
@@ -180,15 +184,13 @@ def test_scroll_engage_releases_a_held_button():
     hp = HandPointer(_mapper_stub(), k=1.0)
     hp.acquire()
     hp.process(make_u_hand(), t=0.0)              # straight baseline
-    bent = make_u_hand()
-    bent[7] = LM(0.45, 0.55)                       # index dip
-    bent[8] = LM(0.47, 0.62)                       # index tip folded
+    bent = _hook_index(make_u_hand())
     down = hp.process(bent, t=0.033)
     assert down.left_edge == "down"               # left button held
-    # Now touch the thumb to the index base to start scrolling, hand still U.
-    touch = make_u_hand()
-    touch[4] = LM(0.45, 0.60)                      # thumb on index base
-    action = hp.process(touch, t=0.066)
+    # Now raise the thumb to start scrolling, hand still U.
+    raised = make_u_hand()
+    raised[4] = LM(0.34, 0.20)                     # thumb raised
+    action = hp.process(raised, t=0.066)
     assert action.left_edge == "up"               # held button released on scroll engage
     assert action.move is None
     # And it is not still considered held.

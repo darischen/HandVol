@@ -15,7 +15,6 @@ from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS, NUMBE
 from handvol.voice_search import VoiceSearch
 from handvol.handmouse import mouse as hm_mouse
 from handvol.handmouse.pointer import HandPointer, AbsoluteMapper, RelativeMapper
-from handvol.handmouse import detect as hm_detect
 
 
 INDEX_TIP = 8  # MediaPipe landmark index for the index fingertip
@@ -66,6 +65,11 @@ def parse_args():
                         "size (default 1.0)")
     p.add_argument("--no-pointer", action="store_true",
                    help="Disable the hand mouse pointer feature")
+    p.add_argument("--scroll-gain", type=float, default=60.0,
+                   help="Scroll speed: wheel notches per unit hand displacement "
+                        "from the scroll anchor, per second (default 60)")
+    p.add_argument("--scroll-invert", action="store_true",
+                   help="Invert scroll direction")
     return p.parse_args()
 
 
@@ -166,7 +170,6 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
     # config value so a runtime monitor-switch gesture can change it later.
     hand_pointer = None
     pointer_mouse = None
-    pointer_point = None  # last projected point in normalized coords, for overlay
     if not args.no_pointer:
         try:
             monitor = hm_mouse.get_primary_monitor()
@@ -178,7 +181,9 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
             else:
                 mapper = AbsoluteMapper(monitor.width, monitor.height,
                                         active=args.pointer_margin)
-            hand_pointer = HandPointer(mapper, k=args.pointer_k)
+            hand_pointer = HandPointer(mapper, k=args.pointer_k,
+                                       scroll_gain=args.scroll_gain,
+                                       scroll_invert=args.scroll_invert)
         except Exception as exc:  # pragma: no cover - depends on OS state
             print(f"[handvol] hand pointer disabled: {exc!r}")
             hand_pointer = None
@@ -240,7 +245,6 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                 scrubber.exit()
 
             elif event is Event.ENTER_POINTER:
-                pointer_point = None
                 if hand_pointer is not None:
                     hand_pointer.acquire()
                     if isinstance(hand_pointer.mapper, RelativeMapper) and pointer_mouse is not None:
@@ -257,7 +261,6 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     action = hand_pointer.process(landmarks, time.monotonic())
                     if action.move is not None:
                         pointer_mouse.move_to(*action.move)
-                        pointer_point = hm_detect.projected_point(landmarks, k=args.pointer_k)
                     if action.left_edge == "down":
                         pointer_mouse.left_down()
                     elif action.left_edge == "up":
@@ -276,7 +279,6 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                             pointer_mouse.left_up()
                         else:
                             pointer_mouse.right_up()
-                pointer_point = None
 
             elif event is Event.TOGGLE_MUTE:
                 if not args.no_audio:
@@ -454,14 +456,20 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                 draw_volume(frame, vol_now)
                 draw_lock_state(frame, locked)
                 if hand_pointer is not None and machine.state is State.POINTER:
-                    if isinstance(hand_pointer.mapper, AbsoluteMapper):
-                        draw_active_region(frame, args.pointer_margin)
-                    draw_pointer(
-                        frame, pointer_point,
-                        left_bent=hand_pointer._index.bent,
-                        right_bent=hand_pointer._middle.bent,
-                        scrolling=hand_pointer._scroll_anchor_y is not None,
-                    )
+                    st = hand_pointer.status()
+                    if st.scrolling and st.point is not None and st.scroll_anchor_y is not None:
+                        # Volume-style indicator: cyan bar at the scroll anchor,
+                        # dot at the current point, vertical connector.
+                        draw_scrub_indicator(
+                            frame, st.scroll_anchor_y, st.point[1], st.point[0])
+                    elif st.point is not None:
+                        if isinstance(hand_pointer.mapper, AbsoluteMapper):
+                            draw_active_region(frame, args.pointer_margin)
+                        draw_pointer(
+                            frame, st.point,
+                            left_bent=st.left_bent,
+                            right_bent=st.right_bent,
+                        )
                 if machine.state is State.SCRUB and scrubber.active and landmarks is not None:
                     tip_x, tip_y = scrub_tip(landmarks)
                     draw_scrub_indicator(frame, scrubber.anchor_y, tip_y, tip_x)

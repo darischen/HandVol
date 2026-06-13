@@ -2,6 +2,7 @@ import math
 
 # MediaPipe hand landmark indices.
 WRIST = 0
+THUMB_MCP = 2
 THUMB_TIP = 4
 INDEX_MCP, INDEX_PIP, INDEX_DIP, INDEX_TIP = 5, 6, 7, 8
 MIDDLE_MCP, MIDDLE_PIP, MIDDLE_DIP, MIDDLE_TIP = 9, 10, 11, 12
@@ -47,22 +48,21 @@ def projected_point(landmarks, k=1.0):
     return (mx + ax * k * scale, my + ay * k * scale)
 
 
-def pip_angle(landmarks, mcp_idx, pip_idx, tip_idx):
-    """Angle in degrees at the PIP joint, between the bones MCP->PIP and
-    PIP->TIP. A straight finger is near 180 degrees; a bent finger drops well
-    below. Angle-based, so it reads the same across hand tilt and hand size."""
+def fingertip_curl(landmarks, mcp_idx, pip_idx, tip_idx):
+    """Ratio of the tip-to-PIP distance over the PIP-to-MCP base length.
+
+    A straight finger is ~1.3 or higher; the ratio drops well below 1 when the
+    top of the finger hooks (tip, dip, pip cluster together) while the MCP->PIP
+    base segment stays straight. This detects a comfortable fingertip half-bend
+    rather than a full fist curl. Scale- and tilt-invariant because it is a
+    ratio of two bone-length distances."""
     mcp = landmarks[mcp_idx]
     pip = landmarks[pip_idx]
     tip = landmarks[tip_idx]
-    v1x, v1y = mcp.x - pip.x, mcp.y - pip.y
-    v2x, v2y = tip.x - pip.x, tip.y - pip.y
-    n1 = math.hypot(v1x, v1y)
-    n2 = math.hypot(v2x, v2y)
-    if n1 == 0 or n2 == 0:
-        return 180.0
-    cos = (v1x * v2x + v1y * v2y) / (n1 * n2)
-    cos = max(-1.0, min(1.0, cos))
-    return math.degrees(math.acos(cos))
+    base = math.hypot(pip.x - mcp.x, pip.y - mcp.y)
+    if base == 0:
+        return 999.0
+    return math.hypot(tip.x - pip.x, tip.y - pip.y) / base
 
 
 EXTEND_RATIO = 1.6   # tip must be this much farther from wrist than its MCP
@@ -110,19 +110,18 @@ def palm_facing(landmarks, handedness):
     return hand_normal_z(landmarks) * sign > 0
 
 
-THUMB_TOUCH_RATIO = 0.2  # thumb tip within this * hand_scale of the index base
+THUMB_EXTEND_RATIO = 1.5  # thumb tip this much farther from wrist than its MCP
 
 
-def thumb_touch(landmarks):
-    """True when the thumb pad rests on the side/base of the index finger
-    (near its MCP). Engages scroll while index + middle stay straight, so it
-    never collides with the bend-based clicks."""
+def thumb_extended(landmarks):
+    """True when the thumb is extended straight (tip well beyond its own MCP
+    from the wrist), as opposed to tucked against the hand. A raised thumb
+    engages scroll; a tucked thumb keeps pointer + click mode. Index and middle
+    stay straight either way, so this never collides with the bend-based clicks."""
     if not landmarks or len(landmarks) < 21:
         return False
-    t = landmarks[THUMB_TIP]
-    base = landmarks[INDEX_MCP]
-    d = math.hypot(t.x - base.x, t.y - base.y)
-    return d < hand_scale(landmarks) * THUMB_TOUCH_RATIO
+    return (_dist_to_wrist(landmarks, THUMB_TIP)
+            > _dist_to_wrist(landmarks, THUMB_MCP) * THUMB_EXTEND_RATIO)
 
 
 def detect_u_sign(landmarks, handedness):
