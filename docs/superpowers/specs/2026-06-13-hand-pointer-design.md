@@ -153,12 +153,32 @@ state -> dispatch flow. New code lives in a `handvol/handmouse/` package.
 - New `POINTER` state, entered when the U sign holds about 5 frames (mirrors
   `SCRUB_ENTER_FRAMES`), exited when it drops about 3 frames (mirrors
   `SCRUB_EXIT_FRAMES`).
-- While in `POINTER`, other HandVol gestures are suppressed so the cursor owns
-  the hand, the same idea as the scrub lock.
 - The existing `Number_9` lock takes priority. When locked, pointer mode does
   not engage.
 - Clicks and scroll are sub-states handled inside `POINTER` and update every
   frame, so the toggle cooldown does not fight continuous control.
+
+### Click poses collide with existing gestures
+
+Bending a finger to click changes the hand shape. Bending the index (left
+click) leaves only the middle extended, which matches the existing
+`middle_finger` gesture (restart). Bending the middle (right click) leaves only
+the index, which matches `Pointing_Up` (toggle preview). Two rules resolve
+this:
+
+1. **Clicks come from landmark geometry, not gesture labels.** The dispatch
+   loop reads PIP angles every frame to detect bends, independent of whichever
+   label the recognizer reports.
+2. **POINTER state is sticky across click poses.** Entry from `IDLE` requires a
+   strict `U_sign` (both fingers extended and together). Once in `POINTER`, the
+   poses `U_sign`, `Pointing_Up`, and `middle_finger` all keep the mode alive,
+   because they are the click poses. The mode exits only after a clear non-pose
+   (open palm, fist, no hand) holds for the exit frame count. This stops a
+   click from dropping the pointer and stops a click pose from firing restart
+   or toggle-preview.
+
+On exit, any still-held mouse button is released so a click cannot get stuck
+down.
 
 ## OS injection
 
