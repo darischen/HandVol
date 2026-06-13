@@ -91,3 +91,29 @@ def draw_lock_state(frame, locked):
     h, w = frame.shape[:2]
     (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
     _put(frame, text, (w - tw - 12, 84), color, 0.6, 2)
+
+
+def draw_active_region(frame, active=0.65):
+    """Dashed-looking rectangle marking the camera sub-region mapped to the
+    screen in absolute pointer mode."""
+    h, w = frame.shape[:2]
+    lo = (1 - active) / 2
+    x0, y0 = int(lo * w), int(lo * h)
+    x1, y1 = int((1 - lo) * w), int((1 - lo) * h)
+    cv2.rectangle(frame, (x0, y0), (x1, y1), CYAN, 1, cv2.LINE_AA)
+
+
+def draw_pointer(frame, point_norm, left_bent=False, right_bent=False, scrolling=False):
+    """Crosshair at the projected cursor point. Green normally, red while a
+    button is held, yellow while scrolling."""
+    if point_norm is None:
+        return
+    h, w = frame.shape[:2]
+    cx, cy = int(point_norm[0] * w), int(point_norm[1] * h)
+    color = YELLOW if scrolling else (RED if (left_bent or right_bent) else GREEN)
+    cv2.circle(frame, (cx, cy), 9, color, 2, cv2.LINE_AA)
+    cv2.line(frame, (cx - 14, cy), (cx + 14, cy), color, 1, cv2.LINE_AA)
+    cv2.line(frame, (cx, cy - 14), (cx, cy + 14), color, 1, cv2.LINE_AA)
+    label = "SCROLL" if scrolling else ("L" if left_bent else "") + ("R" if right_bent else "")
+    if label:
+        _put(frame, label, (cx + 16, cy - 16), color, 0.5, 1)
