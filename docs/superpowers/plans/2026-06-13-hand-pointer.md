@@ -490,7 +490,7 @@ Expected: FAIL with `AttributeError: ... has no attribute 'thumb_touch'`.
 Append to `handvol/handmouse/detect.py`:
 
 ```python
-THUMB_TOUCH_RATIO = 0.5  # thumb tip within this * hand_scale of the index base
+THUMB_TOUCH_RATIO = 0.2  # thumb tip within this * hand_scale of the index base
 
 
 def thumb_touch(landmarks):
