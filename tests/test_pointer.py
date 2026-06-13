@@ -96,3 +96,21 @@ def test_relative_clamps_to_screen_bounds():
     m.map((0.5, 0.5), just_acquired=True)
     x, y = m.map((1.0, 1.0), just_acquired=False)
     assert (x, y) == (1920, 1080)
+
+
+from handvol.handmouse.pointer import BendTrigger
+
+
+def test_bend_trigger_engages_below_engage_and_holds_through_hysteresis():
+    t = BendTrigger(engage_deg=100, release_deg=130)
+    assert t.update(170) is False    # straight
+    assert t.update(95) is True      # crosses engage -> bent
+    assert t.update(120) is True     # in the hysteresis band -> still bent
+    assert t.update(135) is False    # crosses release -> straight again
+
+
+def test_bend_trigger_no_chatter_in_band():
+    t = BendTrigger(engage_deg=100, release_deg=130)
+    t.update(170)
+    states = [t.update(a) for a in (105, 110, 115, 120, 125)]
+    assert states == [False, False, False, False, False]  # never engaged in band

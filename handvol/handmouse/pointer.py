@@ -115,3 +115,27 @@ class RelativeMapper:
 
     def reset(self):
         self._last = None
+
+
+class BendTrigger:
+    """Schmitt trigger over a finger's PIP angle. Becomes 'bent' only after the
+    angle drops below engage_deg, and 'straight' again only after it rises above
+    release_deg. The gap (engage < release) stops a single bend from chattering
+    into multiple click events."""
+
+    def __init__(self, engage_deg=100.0, release_deg=130.0):
+        self.engage_deg = engage_deg
+        self.release_deg = release_deg
+        self.bent = False
+
+    def update(self, angle_deg):
+        if self.bent:
+            if angle_deg > self.release_deg:
+                self.bent = False
+        else:
+            if angle_deg < self.engage_deg:
+                self.bent = True
+        return self.bent
+
+    def reset(self):
+        self.bent = False
