@@ -39,6 +39,27 @@ def test_exits_pointer_after_exit_frames_of_non_pose():
     assert sm.state is State.IDLE
 
 
+def test_ambiguous_pose_keeps_pointer_alive():
+    # A half-bend click frame often reads as Victory; it must not drop POINTER.
+    from handvol.state import VICTORY
+    sm = GestureStateMachine()
+    for _ in range(POINTER_ENTER_FRAMES):
+        sm.step(U_SIGN)
+    for _ in range(POINTER_EXIT_FRAMES + 2):
+        assert sm.step(VICTORY) is Event.POINTER_UPDATE
+    assert sm.state is State.POINTER
+
+
+def test_open_palm_exits_pointer():
+    from handvol.state import PALM
+    sm = GestureStateMachine()
+    for _ in range(POINTER_ENTER_FRAMES):
+        sm.step(U_SIGN)
+    events = [sm.step(PALM) for _ in range(POINTER_EXIT_FRAMES)]
+    assert events[-1] is Event.EXIT_POINTER
+    assert sm.state is State.IDLE
+
+
 def test_pointing_up_in_idle_still_toggles_preview_not_pointer():
     sm = GestureStateMachine()
     from handvol.state import TOGGLE_FRAMES

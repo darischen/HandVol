@@ -81,10 +81,12 @@ FOUR_FINGERS = "four_fingers"
 U_SIGN = "U_sign"
 POINTER_ENTER_FRAMES = 5
 POINTER_EXIT_FRAMES = 3
-# Poses that keep POINTER alive: the U itself plus the two click poses it
-# momentarily becomes when a finger bends (index bend -> middle alone looks like
-# middle_finger; middle bend -> index alone looks like Pointing_Up).
-POINTER_HOLD_POSES = (U_SIGN, POINTING_UP, MIDDLE_FINGER)
+# POINTER stays alive for any pose EXCEPT these clear "leave" signals. Bending a
+# finger to click momentarily relabels the hand (a half-bend often reads as
+# Victory, Pointing_Up, or middle_finger), so keying exit off a small hold-pose
+# whitelist used to drop the pointer mid-click. Instead the mode persists until
+# the user opens the palm, makes a fist, or removes the hand from frame.
+POINTER_EXIT_POSES = (PALM, FIST, "None")
 
 
 class GestureStateMachine:
@@ -350,15 +352,17 @@ class GestureStateMachine:
             return Event.NONE
 
         if self.state is State.POINTER:
-            if gesture in POINTER_HOLD_POSES:
-                self._pointer_exit_count = 0
-                return Event.POINTER_UPDATE
-            self._pointer_exit_count += 1
-            if self._pointer_exit_count >= POINTER_EXIT_FRAMES:
-                self.state = State.IDLE
-                self._reset_counters()
-                return Event.EXIT_POINTER
-            return Event.NONE
+            if gesture in POINTER_EXIT_POSES:
+                self._pointer_exit_count += 1
+                if self._pointer_exit_count >= POINTER_EXIT_FRAMES:
+                    self.state = State.IDLE
+                    self._reset_counters()
+                    return Event.EXIT_POINTER
+                return Event.NONE
+            # Any other pose (U, the click poses, or an ambiguous half-bend)
+            # keeps the pointer live and drives a fresh update.
+            self._pointer_exit_count = 0
+            return Event.POINTER_UPDATE
 
         # IDLE_COOLDOWN
         if self._neutral_count >= 1:

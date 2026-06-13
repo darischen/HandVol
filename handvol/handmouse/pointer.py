@@ -147,13 +147,16 @@ from handvol.handmouse import detect
 
 PointerAction = namedtuple("PointerAction", "move left_edge right_edge scroll")
 PointerStatus = namedtuple(
-    "PointerStatus", "point left_bent right_bent scrolling scroll_anchor_y")
+    "PointerStatus",
+    "point left_bent right_bent scrolling scroll_anchor_y index_curl middle_curl")
 
 # Fingertip-curl ratios for the Schmitt click trigger. The finger reads "bent"
 # (button down) once the tip/dip/pip hook below CURL_ENGAGE and "straight"
-# (button up) again above CURL_RELEASE.
-CURL_ENGAGE = 0.7
-CURL_RELEASE = 0.95
+# (button up) again above CURL_RELEASE. A straight finger is ~1.3, so the band
+# sits comfortably below that to fire on a gentle half-bend without the resting
+# finger ever counting as bent.
+CURL_ENGAGE = 0.8
+CURL_RELEASE = 1.0
 
 # Wheel notches per unit of normalized displacement per second. Scroll is a
 # velocity: the farther the hand sits from the anchor set when scrolling began,
@@ -169,15 +172,16 @@ class HandPointer:
     when the thumb is raised and scrolls at a speed set by how far the hand is
     from the anchor captured at engage time."""
 
-    def __init__(self, mapper, k=1.0, scroll_gain=SCROLL_GAIN, scroll_invert=False):
+    def __init__(self, mapper, k=1.0, scroll_gain=SCROLL_GAIN, scroll_invert=False,
+                 curl_engage=CURL_ENGAGE, curl_release=CURL_RELEASE):
         self.mapper = mapper
         self.k = k
         self.scroll_gain = scroll_gain
         self.scroll_invert = scroll_invert
         self._fx = OneEuroFilter(min_cutoff=1.0, beta=0.7, d_cutoff=1.0)
         self._fy = OneEuroFilter(min_cutoff=1.0, beta=0.7, d_cutoff=1.0)
-        self._index = BendTrigger(engage=CURL_ENGAGE, release=CURL_RELEASE)
-        self._middle = BendTrigger(engage=CURL_ENGAGE, release=CURL_RELEASE)
+        self._index = BendTrigger(engage=curl_engage, release=curl_release)
+        self._middle = BendTrigger(engage=curl_engage, release=curl_release)
         self._just_acquired = True
         self._scroll_anchor_y = None
         self._scroll_accum = 0.0
@@ -187,6 +191,8 @@ class HandPointer:
         self._scrolling = False
         self._left_down = False
         self._right_down = False
+        self._index_curl = 999.0
+        self._middle_curl = 999.0
 
     def acquire(self):
         """Call when (re)entering pointer mode: reset smoothing, clutch, and
@@ -246,6 +252,8 @@ class HandPointer:
             landmarks, detect.INDEX_MCP, detect.INDEX_PIP, detect.INDEX_TIP)
         middle_curl = detect.fingertip_curl(
             landmarks, detect.MIDDLE_MCP, detect.MIDDLE_PIP, detect.MIDDLE_TIP)
+        self._index_curl = index_curl
+        self._middle_curl = middle_curl
         left_edge = self._edge(self._index, index_curl, "left")
         right_edge = self._edge(self._middle, middle_curl, "right")
 
@@ -275,7 +283,8 @@ class HandPointer:
         flags, and scroll state. Lets the UI draw without poking internals."""
         point = (self._sx, self._sy) if self._sx is not None else None
         return PointerStatus(point, self._index.bent, self._middle.bent,
-                             self._scrolling, self._scroll_anchor_y)
+                             self._scrolling, self._scroll_anchor_y,
+                             self._index_curl, self._middle_curl)
 
     def release(self):
         """On pointer-mode exit, return up-edges for any buttons still held so a

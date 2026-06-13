@@ -70,6 +70,12 @@ def parse_args():
                         "from the scroll anchor, per second (default 60)")
     p.add_argument("--scroll-invert", action="store_true",
                    help="Invert scroll direction")
+    p.add_argument("--click-engage", type=float, default=0.8,
+                   help="Fingertip-curl ratio below which a click fires "
+                        "(lower = must hook more; default 0.8)")
+    p.add_argument("--click-release", type=float, default=1.0,
+                   help="Fingertip-curl ratio above which a click releases "
+                        "(default 1.0)")
     return p.parse_args()
 
 
@@ -183,7 +189,9 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                                         active=args.pointer_margin)
             hand_pointer = HandPointer(mapper, k=args.pointer_k,
                                        scroll_gain=args.scroll_gain,
-                                       scroll_invert=args.scroll_invert)
+                                       scroll_invert=args.scroll_invert,
+                                       curl_engage=args.click_engage,
+                                       curl_release=args.click_release)
         except Exception as exc:  # pragma: no cover - depends on OS state
             print(f"[handvol] hand pointer disabled: {exc!r}")
             hand_pointer = None
@@ -271,6 +279,12 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                         pointer_mouse.right_up()
                     if action.scroll:
                         pointer_mouse.scroll(action.scroll)
+                    if args.debug:
+                        st = hand_pointer.status()
+                        print(f"  pointer curl L={st.index_curl:.2f} "
+                              f"R={st.middle_curl:.2f} "
+                              f"L_edge={action.left_edge} R_edge={action.right_edge} "
+                              f"scroll={action.scroll}")
 
             elif event is Event.EXIT_POINTER:
                 if hand_pointer is not None and pointer_mouse is not None:
