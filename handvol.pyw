@@ -76,6 +76,9 @@ def parse_args():
     p.add_argument("--click-release", type=float, default=1.0,
                    help="Fingertip-curl ratio above which a click releases "
                         "(default 1.0)")
+    p.add_argument("--scroll-thumb-ratio", type=float, default=2.0,
+                   help="Thumb extension ratio above which scroll engages. "
+                        "Higher = thumb must be raised more (default 2.0)")
     return p.parse_args()
 
 
@@ -191,7 +194,8 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                                        scroll_gain=args.scroll_gain,
                                        scroll_invert=args.scroll_invert,
                                        curl_engage=args.click_engage,
-                                       curl_release=args.click_release)
+                                       curl_release=args.click_release,
+                                       thumb_ratio=args.scroll_thumb_ratio)
         except Exception as exc:  # pragma: no cover - depends on OS state
             print(f"[handvol] hand pointer disabled: {exc!r}")
             hand_pointer = None
@@ -282,7 +286,7 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     if args.debug:
                         st = hand_pointer.status()
                         print(f"  pointer curl L={st.index_curl:.2f} "
-                              f"R={st.middle_curl:.2f} "
+                              f"R={st.middle_curl:.2f} thumb={st.thumb_ratio:.2f} "
                               f"L_edge={action.left_edge} R_edge={action.right_edge} "
                               f"scroll={action.scroll}")
 

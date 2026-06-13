@@ -148,7 +148,8 @@ from handvol.handmouse import detect
 PointerAction = namedtuple("PointerAction", "move left_edge right_edge scroll")
 PointerStatus = namedtuple(
     "PointerStatus",
-    "point left_bent right_bent scrolling scroll_anchor_y index_curl middle_curl")
+    "point left_bent right_bent scrolling scroll_anchor_y index_curl middle_curl "
+    "thumb_ratio")
 
 # Fingertip-curl ratios for the Schmitt click trigger. The finger reads "bent"
 # (button down) once the tip/dip/pip hook below CURL_ENGAGE and "straight"
@@ -173,11 +174,13 @@ class HandPointer:
     from the anchor captured at engage time."""
 
     def __init__(self, mapper, k=1.0, scroll_gain=SCROLL_GAIN, scroll_invert=False,
-                 curl_engage=CURL_ENGAGE, curl_release=CURL_RELEASE):
+                 curl_engage=CURL_ENGAGE, curl_release=CURL_RELEASE,
+                 thumb_ratio=detect.THUMB_EXTEND_RATIO):
         self.mapper = mapper
         self.k = k
         self.scroll_gain = scroll_gain
         self.scroll_invert = scroll_invert
+        self.thumb_ratio = thumb_ratio
         self._fx = OneEuroFilter(min_cutoff=1.0, beta=0.7, d_cutoff=1.0)
         self._fy = OneEuroFilter(min_cutoff=1.0, beta=0.7, d_cutoff=1.0)
         self._index = BendTrigger(engage=curl_engage, release=curl_release)
@@ -193,6 +196,7 @@ class HandPointer:
         self._right_down = False
         self._index_curl = 999.0
         self._middle_curl = 999.0
+        self._thumb_ratio_value = 0.0
 
     def acquire(self):
         """Call when (re)entering pointer mode: reset smoothing, clutch, and
@@ -217,8 +221,9 @@ class HandPointer:
         self._sx, self._sy = sx, sy
         dt = 0.0 if self._t_prev is None else max(1e-3, t - self._t_prev)
         self._t_prev = t
+        self._thumb_ratio_value = detect.thumb_extension_ratio(landmarks)
 
-        if detect.thumb_extended(landmarks):
+        if detect.thumb_extended(landmarks, self.thumb_ratio):
             self._scrolling = True
             # Engaging scroll releases any button still held from a click/drag,
             # so a button cannot stay down while scrolling.
@@ -284,7 +289,8 @@ class HandPointer:
         point = (self._sx, self._sy) if self._sx is not None else None
         return PointerStatus(point, self._index.bent, self._middle.bent,
                              self._scrolling, self._scroll_anchor_y,
-                             self._index_curl, self._middle_curl)
+                             self._index_curl, self._middle_curl,
+                             self._thumb_ratio_value)
 
     def release(self):
         """On pointer-mode exit, return up-edges for any buttons still held so a

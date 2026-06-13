@@ -110,18 +110,27 @@ def palm_facing(landmarks, handedness):
     return hand_normal_z(landmarks) * sign > 0
 
 
-THUMB_EXTEND_RATIO = 1.5  # thumb tip this much farther from wrist than its MCP
+THUMB_EXTEND_RATIO = 2.0  # thumb tip this much farther from wrist than its MCP
 
 
-def thumb_extended(landmarks):
-    """True when the thumb is extended straight (tip well beyond its own MCP
-    from the wrist), as opposed to tucked against the hand. A raised thumb
-    engages scroll; a tucked thumb keeps pointer + click mode. Index and middle
-    stay straight either way, so this never collides with the bend-based clicks."""
+def thumb_extension_ratio(landmarks):
+    """Thumb tip distance from the wrist over the thumb-MCP distance. Roughly 1
+    when the thumb is tucked against the hand and grows as it is raised, so a
+    higher engage threshold demands a more deliberate raise."""
+    mcp_d = _dist_to_wrist(landmarks, THUMB_MCP)
+    if mcp_d == 0:
+        return 0.0
+    return _dist_to_wrist(landmarks, THUMB_TIP) / mcp_d
+
+
+def thumb_extended(landmarks, ratio=THUMB_EXTEND_RATIO):
+    """True when the thumb is clearly raised (tip well beyond its own MCP from
+    the wrist), as opposed to tucked or resting alongside the hand. A raised
+    thumb engages scroll; otherwise the U stays in pointer + click mode. Index
+    and middle stay straight either way, so this never collides with clicks."""
     if not landmarks or len(landmarks) < 21:
         return False
-    return (_dist_to_wrist(landmarks, THUMB_TIP)
-            > _dist_to_wrist(landmarks, THUMB_MCP) * THUMB_EXTEND_RATIO)
+    return thumb_extension_ratio(landmarks) > ratio
 
 
 def detect_u_sign(landmarks, handedness):
