@@ -6,6 +6,7 @@ class State(str, Enum):
     IDLE = "IDLE"
     SCRUB = "SCRUB"
     IDLE_COOLDOWN = "IDLE_COOLDOWN"
+    POINTER = "POINTER"
 
 
 class Event(str, Enum):
@@ -34,6 +35,9 @@ class Event(str, Enum):
     VOICE_DICTATE = "voice_dictate"
     CONTROL_W = "control_w"
     CONTROL_TAB = "control_tab"
+    ENTER_POINTER = "enter_pointer"
+    POINTER_UPDATE = "pointer_update"
+    EXIT_POINTER = "exit_pointer"
 
 
 SCRUB_ENTER_FRAMES = 5
@@ -74,6 +78,14 @@ NUMBER_10 = "Number_10"
 THREE_FINGERS = "three_fingers"
 FOUR_FINGERS = "four_fingers"
 
+U_SIGN = "U_sign"
+POINTER_ENTER_FRAMES = 5
+POINTER_EXIT_FRAMES = 3
+# Poses that keep POINTER alive: the U itself plus the two click poses it
+# momentarily becomes when a finger bends (index bend -> middle alone looks like
+# middle_finger; middle bend -> index alone looks like Pointing_Up).
+POINTER_HOLD_POSES = (U_SIGN, POINTING_UP, MIDDLE_FINGER)
+
 
 class GestureStateMachine:
     """Drives the IDLE / SCRUB / IDLE_COOLDOWN debouncer.
@@ -107,6 +119,8 @@ class GestureStateMachine:
         self._cooldown_left = 0
         self._three_fingers_count = 0
         self._four_fingers_count = 0
+        self._u_sign_count = 0
+        self._pointer_exit_count = 0
         # Wall-clock start times for hold-gestures; None when not currently held.
         self._middle_start_t = None
         self._double_middle_start_t = None
@@ -134,6 +148,8 @@ class GestureStateMachine:
         self._neutral_count = 0
         self._three_fingers_count = 0
         self._four_fingers_count = 0
+        self._u_sign_count = 0
+        self._pointer_exit_count = 0
         self._middle_start_t = None
         self._double_middle_start_t = None
 
@@ -160,6 +176,7 @@ class GestureStateMachine:
         self._hang_loose_count = self._hang_loose_count + 1 if gesture == HANG_LOOSE else 0
         self._three_fingers_count = self._three_fingers_count + 1 if gesture == THREE_FINGERS else 0
         self._four_fingers_count = self._four_fingers_count + 1 if gesture == FOUR_FINGERS else 0
+        self._u_sign_count = self._u_sign_count + 1 if gesture == U_SIGN else 0
         # Hold timers: start on first sighting, clear the moment the gesture drops.
         # Mutually exclusive — flipping between single and double restarts the clock.
         now = time.monotonic()
@@ -178,7 +195,7 @@ class GestureStateMachine:
             OK_SIGN, FIST, PALM, VICTORY, ILOVEYOU, POINTING_UP,
             MIDDLE_FINGER, DOUBLE_MIDDLE_FINGER, HANG_LOOSE,
             NUMBER_1, NUMBER_2, NUMBER_3, NUMBER_4, NUMBER_5, NUMBER_6, NUMBER_7, NUMBER_9, NUMBER_10,
-            THREE_FINGERS, FOUR_FINGERS,
+            THREE_FINGERS, FOUR_FINGERS, U_SIGN,
         ):
             self._neutral_count = 0
         else:
@@ -232,6 +249,10 @@ class GestureStateMachine:
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
                 return Event.TOGGLE_PLAYPAUSE
+            if self._u_sign_count >= POINTER_ENTER_FRAMES:
+                self.state = State.POINTER
+                self._reset_counters()
+                return Event.ENTER_POINTER
             if self._pointer_count >= TOGGLE_FRAMES:
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES
@@ -326,6 +347,17 @@ class GestureStateMachine:
                 return Event.EXIT_SCRUB
             if gesture == OK_SIGN:
                 return Event.UPDATE_SCRUB
+            return Event.NONE
+
+        if self.state is State.POINTER:
+            if gesture in POINTER_HOLD_POSES:
+                self._pointer_exit_count = 0
+                return Event.POINTER_UPDATE
+            self._pointer_exit_count += 1
+            if self._pointer_exit_count >= POINTER_EXIT_FRAMES:
+                self.state = State.IDLE
+                self._reset_counters()
+                return Event.EXIT_POINTER
             return Event.NONE
 
         # IDLE_COOLDOWN
