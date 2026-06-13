@@ -13,6 +13,9 @@ from handvol.capture import GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
 from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS, NUMBER_9, NUMBER_6
 from handvol.voice_search import VoiceSearch
+from handvol.handmouse import mouse as hm_mouse
+from handvol.handmouse.pointer import HandPointer, AbsoluteMapper, RelativeMapper
+from handvol.handmouse import detect as hm_detect
 
 
 INDEX_TIP = 8  # MediaPipe landmark index for the index fingertip
@@ -50,6 +53,19 @@ def parse_args():
                    help="Skip pycaw/media calls — overlay only (useful for tuning)")
     p.add_argument("--show", action="store_true",
                    help="Start with the preview window open. Otherwise tray-only.")
+    p.add_argument("--pointer-mode", choices=["absolute", "relative"],
+                   default="absolute",
+                   help="Hand pointer mapping mode (default absolute)")
+    p.add_argument("--pointer-margin", type=float, default=0.65,
+                   help="Absolute-mode active region as a fraction of the frame "
+                        "(default 0.65)")
+    p.add_argument("--pointer-gain", type=float, default=2.0,
+                   help="Relative-mode cursor gain (default 2.0)")
+    p.add_argument("--pointer-k", type=float, default=1.0,
+                   help="Fingertip projection distance as a multiple of hand "
+                        "size (default 1.0)")
+    p.add_argument("--no-pointer", action="store_true",
+                   help="Disable the hand mouse pointer feature")
     return p.parse_args()
 
 
@@ -140,10 +156,32 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
     from handvol.overlay import (
         draw_state, draw_gesture, draw_volume, draw_fps,
         draw_landmarks, draw_scrub_indicator, draw_hold_timer, draw_lock_state,
+        draw_active_region, draw_pointer,
     )
 
     scrubber = VolumeScrubber(sensitivity=args.sensitivity, smoothing=args.smoothing)
     machine = GestureStateMachine()
+
+    # Hand pointer setup. Target the primary monitor for now; the Monitor is a
+    # config value so a runtime monitor-switch gesture can change it later.
+    hand_pointer = None
+    pointer_mouse = None
+    pointer_point = None  # last projected point in normalized coords, for overlay
+    if not args.no_pointer:
+        try:
+            monitor = hm_mouse.get_primary_monitor()
+            virt = hm_mouse.get_virtual_screen()
+            pointer_mouse = hm_mouse.Mouse(monitor, virt)
+            if args.pointer_mode == "relative":
+                mapper = RelativeMapper(monitor.width, monitor.height,
+                                        gain=args.pointer_gain)
+            else:
+                mapper = AbsoluteMapper(monitor.width, monitor.height,
+                                        active=args.pointer_margin)
+            hand_pointer = HandPointer(mapper, k=args.pointer_k)
+        except Exception as exc:  # pragma: no cover - depends on OS state
+            print(f"[handvol] hand pointer disabled: {exc!r}")
+            hand_pointer = None
 
     fps_window = deque(maxlen=30)
     last_t = time.monotonic()
@@ -200,6 +238,37 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
 
             elif event is Event.EXIT_SCRUB:
                 scrubber.exit()
+
+            elif event is Event.ENTER_POINTER:
+                pointer_point = None
+                if hand_pointer is not None:
+                    hand_pointer.acquire()
+
+            elif event is Event.POINTER_UPDATE:
+                if hand_pointer is not None and pointer_mouse is not None and landmarks is not None:
+                    action = hand_pointer.process(landmarks, time.monotonic())
+                    if action.move is not None:
+                        pointer_mouse.move_to(*action.move)
+                        pointer_point = hm_detect.projected_point(landmarks, k=args.pointer_k)
+                    if action.left_edge == "down":
+                        pointer_mouse.left_down()
+                    elif action.left_edge == "up":
+                        pointer_mouse.left_up()
+                    if action.right_edge == "down":
+                        pointer_mouse.right_down()
+                    elif action.right_edge == "up":
+                        pointer_mouse.right_up()
+                    if action.scroll:
+                        pointer_mouse.scroll(action.scroll)
+
+            elif event is Event.EXIT_POINTER:
+                if hand_pointer is not None and pointer_mouse is not None:
+                    for button, _ in hand_pointer.release():
+                        if button == "left":
+                            pointer_mouse.left_up()
+                        else:
+                            pointer_mouse.right_up()
+                pointer_point = None
 
             elif event is Event.TOGGLE_MUTE:
                 if not args.no_audio:
@@ -376,6 +445,15 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     draw_hold_timer(frame, action, elapsed, HOLD_SECONDS)
                 draw_volume(frame, vol_now)
                 draw_lock_state(frame, locked)
+                if hand_pointer is not None and machine.state is State.POINTER:
+                    if isinstance(hand_pointer.mapper, AbsoluteMapper):
+                        draw_active_region(frame, args.pointer_margin)
+                    draw_pointer(
+                        frame, pointer_point,
+                        left_bent=hand_pointer._index.bent,
+                        right_bent=hand_pointer._middle.bent,
+                        scrolling=hand_pointer._scroll_anchor_y is not None,
+                    )
                 if machine.state is State.SCRUB and scrubber.active and landmarks is not None:
                     tip_x, tip_y = scrub_tip(landmarks)
                     draw_scrub_indicator(frame, scrubber.anchor_y, tip_y, tip_x)
