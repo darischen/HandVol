@@ -1,0 +1,233 @@
+# Hand Pointer Design
+
+Date: 2026-06-13
+Branch: hand-pointer
+Status: Approved design, ready for implementation plan
+
+## Goal
+
+Let a user move and control the mouse pointer with one hand through the
+webcam. The control pose is the ASL "U": index and middle fingers extended
+and held together, ring and pinky curled. Bending the index left-clicks,
+bending the middle right-clicks, and a thumb touch engages scroll. The
+feature lives alongside the existing HandVol gesture controls and reuses the
+capture, state, and dispatch flow.
+
+## Core decisions (resolved during brainstorming)
+
+1. **Anchor at the knuckles, show the cursor at the fingertips.** Track the
+   midpoint of the index MCP (landmark 5) and middle MCP (landmark 9). These
+   barely move when a fingertip curls, so the cursor holds still during a
+   click. The cursor is then projected up to where the fingertips appear so
+   the interaction feels touchscreen-like.
+
+2. **Axis projection for the fingertip offset (method A), latched offset as
+   fallback (method B).** The offset must come from stable landmarks, not the
+   live fingertips, or the bend drift returns. Method A projects the cursor
+   along the `wrist -> MCP-midpoint` axis by a hand-size-scaled distance.
+   Method B (sample the real tip offset while fingers are straight, freeze it
+   during a bend) is documented as a fallback if A feels off-position.
+
+3. **Both screen mappers, default absolute.** An `AbsoluteMapper` maps a
+   center sub-region of the frame to the full target monitor and snaps to the
+   hand on first detection. A `RelativeMapper` moves the cursor by clutched
+   deltas with no snap. Default is absolute. A flag and tray toggle switch
+   between them.
+
+4. **Primary monitor now, runtime switch later.** The target monitor is a
+   config value defaulting to primary. A runtime switch gesture comes later
+   once the user picks the gesture, so the code reads the target from config
+   rather than hard-coding primary.
+
+5. **Active region with margins.** MediaPipe needs the whole hand in frame, so
+   the absolute mapper maps the center ~65% of the camera frame to 100% of the
+   target monitor. Reaching a screen edge needs the hand only near the middle
+   of the frame, keeping the whole hand visible. Margin is one tunable value.
+
+6. **Fingertip-hook ratio for click detection (revised after smoke test).** A
+   click is a comfortable fingertip half-bend, where the tip, dip, and pip
+   cluster together while the MCP->PIP base stays straight. Detected by the
+   ratio `dist(tip, pip) / dist(pip, mcp)`: about 1.3 when straight, dropping
+   below ~0.7 when the top of the finger hooks. Scale- and tilt-invariant. A
+   Schmitt trigger (engage ~0.7, release ~0.95) prevents chatter. This replaced
+   the original full-bend PIP-angle approach, which required curling the whole
+   finger.
+
+7. **Faithful button up/down gives click, double-click, and drag for free.**
+   Index bend sends left button down, straighten sends left button up. Middle
+   bend maps to the right button. Windows interprets two quick pairs as a
+   double-click and a held-down move as a drag, so no separate timing logic is
+   needed.
+
+8. **Scroll engages with a raised thumb, velocity-based (revised after smoke
+   test).** While the U pose holds, raising the thumb straight up (tip well
+   beyond its own MCP from the wrist) engages scroll. The default tucked thumb
+   keeps pointer and click mode. On engage, the current hand height is captured
+   as a fixed anchor. Scroll speed is proportional to how far the hand sits
+   above or below that anchor, so holding a displacement keeps scrolling (a
+   scroll joystick). The overlay shows the volume-style cyan bar at the anchor
+   with a dot tracking the current point. Lowering the thumb resumes pointing.
+   Speed (`--scroll-gain`) and direction (`--scroll-invert`) are configurable.
+   This replaced the original thumb-touch-to-index engagement (which was
+   inverted from what felt natural) and the per-frame increment model.
+
+## Architecture
+
+A `POINTER` mode that parallels the existing `SCRUB` mode in the capture ->
+state -> dispatch flow. New code lives in a `handvol/handmouse/` package.
+
+### New package: handvol/handmouse/
+
+- `__init__.py`
+- `detect.py` — U-sign detection and landmark geometry. Pure functions over
+  MediaPipe landmarks. `capture.py` imports this and calls it inside
+  `_resolve_hand`.
+- `pointer.py` — anchor computation, axis projection, One-Euro smoothing, and
+  the `PointerMapper` interface with `AbsoluteMapper` and `RelativeMapper`.
+  Pure logic, no OS calls, unit-testable.
+- `mouse.py` — OS injection. `move_to`, `left_down`, `left_up`, `right_down`,
+  `right_up`, `scroll`, built on `ctypes` `SendInput`. Multi-monitor
+  coordinate math lives here. A thin seam allows tests to assert calls without
+  moving the real cursor.
+
+### Edits to existing files
+
+- `capture.py` — call `detect.detect_u_sign()` inside `_resolve_hand` before
+  MediaPipe's `Victory`. Surface the pointer geometry the dispatch loop needs.
+- `state.py` — add a `POINTER` state and pointer events.
+- `handvol.pyw` — dispatch pointer events, own the active mapper and the
+  target-monitor config, add CLI flags.
+- `overlay.py` — draw the active region box, the cursor point, and click and
+  scroll state for tuning.
+
+## Detection details
+
+### U sign
+
+- Index and middle extended, ring and pinky curled.
+- The two fingertips close together, with the tip-to-tip distance below a
+  fraction of hand width, to separate the U from `Victory` (fingers spread).
+- Extension is measured along the hand principal axis (`wrist -> MCP-midpoint`)
+  rather than screen-Y, so a tilt up to 30 degrees toward the ASL "H" still
+  reads as extended.
+- Runs before `Victory` in `_resolve_hand`, so a fingers-together V becomes the
+  pointer rather than Focus Spotify. A spread V still triggers Spotify.
+
+### Backward-hand rejection
+
+- Compute the hand-plane normal as the cross product of `wrist -> index_MCP`
+  and `wrist -> pinky_MCP`.
+- Combine the normal direction with MediaPipe handedness to reject the pose
+  when the palm faces away from the camera.
+
+### Hand selection
+
+- Either hand works. The first hand forming the U drives the pointer.
+
+## Cursor position
+
+- Anchor = midpoint of index MCP (5) and middle MCP (9).
+- Cursor point = anchor projected forward along the hand axis by
+  `k * hand_scale`, where `hand_scale` derives from the wrist-to-MCP length.
+  This is method A. Method B (latched offset) is the documented fallback.
+- A One-Euro filter smooths the cursor point. It gives low lag during fast
+  motion and steadiness when the hand is still, which suits a pointer better
+  than a plain EMA.
+
+### Mappers
+
+- `AbsoluteMapper`: maps the center ~65% of the frame to the full target
+  monitor. Snaps the cursor to the hand on first detection. Margin and target
+  monitor are config values.
+- `RelativeMapper`: each frame adds `gain * (current_point - last_point)` to
+  the cursor. On re-acquisition of the U sign it resets `last_point` so the
+  cursor resumes from its current spot (clutching), with no snap.
+- Both implement a shared `map(point, just_acquired) -> (screen_x, screen_y)`
+  interface. The active mapper is chosen by flag or tray toggle.
+
+## Clicks, drag, double-click, scroll
+
+- **Bend detection**: fingertip-hook ratio `dist(tip, pip) / dist(pip, mcp)`
+  with a Schmitt trigger. Engage when the ratio drops below ~0.7, release when
+  it rises above ~0.95. Thresholds are tunable. Detects a fingertip half-bend,
+  not a full curl.
+- **Buttons**: index hook = left button down, index straighten = left button
+  up. Middle hook = right button down and up. Single click, double-click, and
+  drag emerge from this faithful mapping. Windows owns the timing.
+- **Scroll**: raising the thumb engages scroll (velocity from a fixed anchor).
+  Speed is proportional to the hand's displacement from the anchor captured at
+  engage. Speed and direction are configurable (`--scroll-gain`,
+  `--scroll-invert`); default hand up = scroll up. The overlay draws the
+  volume-style anchor bar and tracking dot.
+
+## State machine and coexistence
+
+- New `POINTER` state, entered when the U sign holds about 5 frames (mirrors
+  `SCRUB_ENTER_FRAMES`), exited when it drops about 3 frames (mirrors
+  `SCRUB_EXIT_FRAMES`).
+- The existing `Number_9` lock takes priority. When locked, pointer mode does
+  not engage.
+- Clicks and scroll are sub-states handled inside `POINTER` and update every
+  frame, so the toggle cooldown does not fight continuous control.
+
+### Click poses collide with existing gestures
+
+Bending a finger to click changes the hand shape. Bending the index (left
+click) leaves only the middle extended, which matches the existing
+`middle_finger` gesture (restart). Bending the middle (right click) leaves only
+the index, which matches `Pointing_Up` (toggle preview). Two rules resolve
+this:
+
+1. **Clicks come from landmark geometry, not gesture labels.** The dispatch
+   loop reads PIP angles every frame to detect bends, independent of whichever
+   label the recognizer reports.
+2. **POINTER state is sticky across click poses.** Entry from `IDLE` requires a
+   strict `U_sign` (both fingers extended and together). Once in `POINTER`, the
+   poses `U_sign`, `Pointing_Up`, and `middle_finger` all keep the mode alive,
+   because they are the click poses. The mode exits only after a clear non-pose
+   (open palm, fist, no hand) holds for the exit frame count. This stops a
+   click from dropping the pointer and stops a click pose from firing restart
+   or toggle-preview.
+
+On exit, any still-held mouse button is released so a click cannot get stuck
+down.
+
+## OS injection
+
+- `mouse.py` uses `ctypes` `SendInput` for low-latency moves and button
+  events.
+- Absolute moves use the 0..65535 normalized coordinate space over the virtual
+  desktop. To target the primary monitor, the mapper converts a monitor-local
+  position into virtual-desktop-normalized coordinates using the monitor
+  rectangle and the virtual screen metrics (`SM_XVIRTUALSCREEN`,
+  `SM_YVIRTUALSCREEN`, `SM_CXVIRTUALSCREEN`, `SM_CYVIRTUALSCREEN`).
+- A thin seam (an injectable sink) lets tests assert the intended calls without
+  moving the real cursor.
+
+## CLI flags
+
+Mirror the existing flag style in `parse_args`:
+
+- `--pointer-mode {absolute,relative}` (default `absolute`)
+- `--pointer-margin` (active-region fraction, default ~0.65)
+- `--pointer-sensitivity` (gain for relative mode)
+- Existing tuning flags stay as they are.
+
+## Testing
+
+- `tests/test_pointer.py` (pure logic, no camera):
+  - Axis projection math holds the cursor steady when a fingertip moves.
+  - One-Euro filter smooths and tracks as expected.
+  - `AbsoluteMapper` mapping and clamping, including the active-region margin
+    and snap on first detection.
+  - `RelativeMapper` delta accumulation and clutch reset on re-acquisition.
+  - PIP-angle Schmitt trigger transitions (engage, hold, release).
+  - U-sign detection separates from `Victory` and rejects a backward hand.
+- `mouse.py` injection asserted through its seam without moving the cursor.
+- Follows the existing test pattern. No GUI or camera tests.
+
+## Out of scope (this version)
+
+- The runtime monitor-switch gesture (config hook only for now).
+- Spanning both monitors as one mapping target.
+- Gesture customization UI.

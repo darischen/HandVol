@@ -6,6 +6,7 @@ class State(str, Enum):
     IDLE = "IDLE"
     SCRUB = "SCRUB"
     IDLE_COOLDOWN = "IDLE_COOLDOWN"
+    POINTER = "POINTER"
 
 
 class Event(str, Enum):
@@ -34,6 +35,9 @@ class Event(str, Enum):
     VOICE_DICTATE = "voice_dictate"
     CONTROL_W = "control_w"
     CONTROL_TAB = "control_tab"
+    ENTER_POINTER = "enter_pointer"
+    POINTER_UPDATE = "pointer_update"
+    EXIT_POINTER = "exit_pointer"
 
 
 SCRUB_ENTER_FRAMES = 5
@@ -74,6 +78,16 @@ NUMBER_10 = "Number_10"
 THREE_FINGERS = "three_fingers"
 FOUR_FINGERS = "four_fingers"
 
+U_SIGN = "U_sign"
+POINTER_ENTER_FRAMES = 5
+POINTER_EXIT_FRAMES = 3
+# POINTER stays alive for any pose EXCEPT these clear "leave" signals. Bending a
+# finger to click momentarily relabels the hand (a half-bend often reads as
+# Victory, Pointing_Up, or middle_finger), so keying exit off a small hold-pose
+# whitelist used to drop the pointer mid-click. Instead the mode persists until
+# the user opens the palm, makes a fist, or removes the hand from frame.
+POINTER_EXIT_POSES = (PALM, FIST, "None")
+
 
 class GestureStateMachine:
     """Drives the IDLE / SCRUB / IDLE_COOLDOWN debouncer.
@@ -82,7 +96,11 @@ class GestureStateMachine:
     The machine never touches audio or media directly.
     """
 
-    def __init__(self):
+    def __init__(self, pointer_enabled=False):
+        # When the hand-pointer feature is on, the Pointing_Up and middle-finger
+        # poses are the click poses, so their IDLE actions (toggle preview,
+        # restart, shutdown) are suppressed to avoid firing during clicks.
+        self.pointer_enabled = pointer_enabled
         self.state = State.IDLE
         self._ok_count = 0
         self._non_ok_count = 0
@@ -107,6 +125,8 @@ class GestureStateMachine:
         self._cooldown_left = 0
         self._three_fingers_count = 0
         self._four_fingers_count = 0
+        self._u_sign_count = 0
+        self._pointer_exit_count = 0
         # Wall-clock start times for hold-gestures; None when not currently held.
         self._middle_start_t = None
         self._double_middle_start_t = None
@@ -134,6 +154,8 @@ class GestureStateMachine:
         self._neutral_count = 0
         self._three_fingers_count = 0
         self._four_fingers_count = 0
+        self._u_sign_count = 0
+        self._pointer_exit_count = 0
         self._middle_start_t = None
         self._double_middle_start_t = None
 
@@ -160,6 +182,7 @@ class GestureStateMachine:
         self._hang_loose_count = self._hang_loose_count + 1 if gesture == HANG_LOOSE else 0
         self._three_fingers_count = self._three_fingers_count + 1 if gesture == THREE_FINGERS else 0
         self._four_fingers_count = self._four_fingers_count + 1 if gesture == FOUR_FINGERS else 0
+        self._u_sign_count = self._u_sign_count + 1 if gesture == U_SIGN else 0
         # Hold timers: start on first sighting, clear the moment the gesture drops.
         # Mutually exclusive — flipping between single and double restarts the clock.
         now = time.monotonic()
@@ -178,7 +201,7 @@ class GestureStateMachine:
             OK_SIGN, FIST, PALM, VICTORY, ILOVEYOU, POINTING_UP,
             MIDDLE_FINGER, DOUBLE_MIDDLE_FINGER, HANG_LOOSE,
             NUMBER_1, NUMBER_2, NUMBER_3, NUMBER_4, NUMBER_5, NUMBER_6, NUMBER_7, NUMBER_9, NUMBER_10,
-            THREE_FINGERS, FOUR_FINGERS,
+            THREE_FINGERS, FOUR_FINGERS, U_SIGN,
         ):
             self._neutral_count = 0
         else:
@@ -193,6 +216,8 @@ class GestureStateMachine:
 
         Used by the overlay to display a timer and action label during holds.
         """
+        if self.pointer_enabled:
+            return None
         now = time.monotonic()
         if self._middle_start_t is not None:
             return ("RESTART", now - self._middle_start_t)
@@ -206,13 +231,15 @@ class GestureStateMachine:
 
         if self.state is State.IDLE:
             now = time.monotonic()
-            if (self._middle_start_t is not None
+            # The middle-finger holds (restart/shutdown) double as the left-click
+            # pose when the pointer is on, so they are suppressed in that mode.
+            if (not self.pointer_enabled and self._middle_start_t is not None
                     and now - self._middle_start_t >= HOLD_SECONDS):
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
                 return Event.RESTART_PC
-            if (self._double_middle_start_t is not None
+            if (not self.pointer_enabled and self._double_middle_start_t is not None
                     and now - self._double_middle_start_t >= HOLD_SECONDS):
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES
@@ -232,7 +259,11 @@ class GestureStateMachine:
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
                 return Event.TOGGLE_PLAYPAUSE
-            if self._pointer_count >= TOGGLE_FRAMES:
+            if self._u_sign_count >= POINTER_ENTER_FRAMES:
+                self.state = State.POINTER
+                self._reset_counters()
+                return Event.ENTER_POINTER
+            if not self.pointer_enabled and self._pointer_count >= TOGGLE_FRAMES:
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
@@ -327,6 +358,19 @@ class GestureStateMachine:
             if gesture == OK_SIGN:
                 return Event.UPDATE_SCRUB
             return Event.NONE
+
+        if self.state is State.POINTER:
+            if gesture in POINTER_EXIT_POSES:
+                self._pointer_exit_count += 1
+                if self._pointer_exit_count >= POINTER_EXIT_FRAMES:
+                    self.state = State.IDLE
+                    self._reset_counters()
+                    return Event.EXIT_POINTER
+                return Event.NONE
+            # Any other pose (U, the click poses, or an ambiguous half-bend)
+            # keeps the pointer live and drives a fresh update.
+            self._pointer_exit_count = 0
+            return Event.POINTER_UPDATE
 
         # IDLE_COOLDOWN
         if self._neutral_count >= 1:

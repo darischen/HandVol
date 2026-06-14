@@ -13,6 +13,8 @@ from handvol.capture import GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
 from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS, NUMBER_9, NUMBER_6
 from handvol.voice_search import VoiceSearch
+from handvol.handmouse import mouse as hm_mouse
+from handvol.handmouse.pointer import HandPointer, AbsoluteMapper, RelativeMapper
 
 
 INDEX_TIP = 8  # MediaPipe landmark index for the index fingertip
@@ -50,6 +52,37 @@ def parse_args():
                    help="Skip pycaw/media calls — overlay only (useful for tuning)")
     p.add_argument("--show", action="store_true",
                    help="Start with the preview window open. Otherwise tray-only.")
+    p.add_argument("--pointer-mode", choices=["absolute", "relative"],
+                   default="absolute",
+                   help="Hand pointer mapping mode (default absolute)")
+    p.add_argument("--pointer-margin", type=float, default=0.65,
+                   help="Absolute-mode active region as a fraction of the frame "
+                        "(default 0.65)")
+    p.add_argument("--pointer-lift", type=float, default=0.15,
+                   help="Shift the absolute active region up by this fraction of "
+                        "the frame so the screen bottom is easier to reach "
+                        "(default 0.15)")
+    p.add_argument("--pointer-gain", type=float, default=2.0,
+                   help="Relative-mode cursor gain (default 2.0)")
+    p.add_argument("--pointer-k", type=float, default=1.0,
+                   help="Fingertip projection distance as a multiple of hand "
+                        "size (default 1.0)")
+    p.add_argument("--no-pointer", action="store_true",
+                   help="Disable the hand mouse pointer feature")
+    p.add_argument("--scroll-gain", type=float, default=60.0,
+                   help="Scroll speed: wheel notches per unit hand displacement "
+                        "from the scroll anchor, per second (default 60)")
+    p.add_argument("--scroll-invert", action="store_true",
+                   help="Invert scroll direction")
+    p.add_argument("--click-engage", type=float, default=1.5,
+                   help="Fingertip-curl ratio below which a click fires "
+                        "(lower = must curl more; straight finger ~2; default 1.5)")
+    p.add_argument("--click-release", type=float, default=1.7,
+                   help="Fingertip-curl ratio above which a click releases "
+                        "(default 1.7)")
+    p.add_argument("--scroll-thumb-ratio", type=float, default=1.68,
+                   help="Thumb extension ratio above which scroll engages. "
+                        "Higher = thumb must be raised more (default 1.68)")
     return p.parse_args()
 
 
@@ -130,7 +163,7 @@ def make_mic_image():
     return img
 
 
-def capture_loop(args, show_evt, worker_stop, icon, request_pause):
+def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode):
     """Runs on a worker thread. Owns the camera, the model, and (when toggled
     on) the OpenCV window. cv2 + overlay are imported here so we only pay the
     cost when the worker actually starts. worker_stop is signaled both for
@@ -140,10 +173,57 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
     from handvol.overlay import (
         draw_state, draw_gesture, draw_volume, draw_fps,
         draw_landmarks, draw_scrub_indicator, draw_hold_timer, draw_lock_state,
+        draw_active_region, draw_pointer,
     )
 
     scrubber = VolumeScrubber(sensitivity=args.sensitivity, smoothing=args.smoothing)
-    machine = GestureStateMachine()
+    machine = GestureStateMachine(pointer_enabled=not args.no_pointer)
+
+    # Hand pointer setup. Target the primary monitor for now; the Monitor is a
+    # config value so a runtime monitor-switch gesture can change it later.
+    # `pointer_mode` is a shared holder the tray menu flips between
+    # "absolute" and "relative"; the loop rebuilds the mapper when it changes.
+    hand_pointer = None
+    pointer_mouse = None
+    build_mapper = None
+
+    def _sync_relative_to_cursor(mapper):
+        """Best-effort: start a relative mapper from the real OS cursor."""
+        if pointer_mouse is None:
+            return
+        try:
+            gx, gy = hm_mouse.get_cursor_pos()
+            mapper.set_cursor(gx - pointer_mouse.monitor.left,
+                              gy - pointer_mouse.monitor.top)
+        except Exception:
+            pass
+
+    if not args.no_pointer:
+        try:
+            monitor = hm_mouse.get_primary_monitor()
+            virt = hm_mouse.get_virtual_screen()
+            pointer_mouse = hm_mouse.Mouse(monitor, virt)
+
+            def build_mapper(mode):
+                if mode == "relative":
+                    return RelativeMapper(monitor.width, monitor.height,
+                                          gain=args.pointer_gain)
+                return AbsoluteMapper(monitor.width, monitor.height,
+                                      active=args.pointer_margin,
+                                      lift=args.pointer_lift)
+
+            mapper = build_mapper(pointer_mode["mode"])
+            if isinstance(mapper, RelativeMapper):
+                _sync_relative_to_cursor(mapper)
+            hand_pointer = HandPointer(mapper, k=args.pointer_k,
+                                       scroll_gain=args.scroll_gain,
+                                       scroll_invert=args.scroll_invert,
+                                       curl_engage=args.click_engage,
+                                       curl_release=args.click_release,
+                                       thumb_ratio=args.scroll_thumb_ratio)
+        except Exception as exc:  # pragma: no cover - depends on OS state
+            print(f"[handvol] hand pointer disabled: {exc!r}")
+            hand_pointer = None
 
     fps_window = deque(maxlen=30)
     last_t = time.monotonic()
@@ -176,6 +256,16 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
             if frame is None:
                 break
 
+            # Apply a tray-requested pointer-mode switch by rebuilding the
+            # mapper. Cheap equality check each frame; only acts on a change.
+            if hand_pointer is not None and build_mapper is not None:
+                want_relative = pointer_mode["mode"] == "relative"
+                if want_relative != isinstance(hand_pointer.mapper, RelativeMapper):
+                    hand_pointer.mapper = build_mapper(pointer_mode["mode"])
+                    if want_relative:
+                        _sync_relative_to_cursor(hand_pointer.mapper)
+                    hand_pointer.acquire()
+
             gesture, score, landmarks, all_landmarks = (
                 latest if latest else ("None", 0.0, None, [])
             )
@@ -200,6 +290,48 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
 
             elif event is Event.EXIT_SCRUB:
                 scrubber.exit()
+
+            elif event is Event.ENTER_POINTER:
+                if hand_pointer is not None:
+                    hand_pointer.acquire()
+                    if isinstance(hand_pointer.mapper, RelativeMapper) and pointer_mouse is not None:
+                        try:
+                            gx, gy = hm_mouse.get_cursor_pos()
+                            hand_pointer.mapper.set_cursor(
+                                gx - pointer_mouse.monitor.left,
+                                gy - pointer_mouse.monitor.top)
+                        except Exception:
+                            pass
+
+            elif event is Event.POINTER_UPDATE:
+                if hand_pointer is not None and pointer_mouse is not None and landmarks is not None:
+                    action = hand_pointer.process(landmarks, time.monotonic())
+                    if action.move is not None:
+                        pointer_mouse.move_to(*action.move)
+                    if action.left_edge == "down":
+                        pointer_mouse.left_down()
+                    elif action.left_edge == "up":
+                        pointer_mouse.left_up()
+                    if action.right_edge == "down":
+                        pointer_mouse.right_down()
+                    elif action.right_edge == "up":
+                        pointer_mouse.right_up()
+                    if action.scroll:
+                        pointer_mouse.scroll(action.scroll)
+                    if args.debug:
+                        st = hand_pointer.status()
+                        print(f"  pointer curl L={st.index_curl:.2f} "
+                              f"R={st.middle_curl:.2f} thumb={st.thumb_ratio:.2f} "
+                              f"L_edge={action.left_edge} R_edge={action.right_edge} "
+                              f"scroll={action.scroll}")
+
+            elif event is Event.EXIT_POINTER:
+                if hand_pointer is not None and pointer_mouse is not None:
+                    for button, _ in hand_pointer.release():
+                        if button == "left":
+                            pointer_mouse.left_up()
+                        else:
+                            pointer_mouse.right_up()
 
             elif event is Event.TOGGLE_MUTE:
                 if not args.no_audio:
@@ -376,6 +508,22 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause):
                     draw_hold_timer(frame, action, elapsed, HOLD_SECONDS)
                 draw_volume(frame, vol_now)
                 draw_lock_state(frame, locked)
+                if hand_pointer is not None and machine.state is State.POINTER:
+                    st = hand_pointer.status()
+                    if st.scrolling and st.point is not None and st.scroll_anchor_y is not None:
+                        # Volume-style indicator: cyan bar at the scroll anchor,
+                        # dot at the current point, vertical connector.
+                        draw_scrub_indicator(
+                            frame, st.scroll_anchor_y, st.point[1], st.point[0])
+                    elif st.point is not None:
+                        if isinstance(hand_pointer.mapper, AbsoluteMapper):
+                            draw_active_region(frame, args.pointer_margin,
+                                               args.pointer_lift)
+                        draw_pointer(
+                            frame, st.point,
+                            left_bent=st.left_bent,
+                            right_bent=st.right_bent,
+                        )
                 if machine.state is State.SCRUB and scrubber.active and landmarks is not None:
                     tip_x, tip_y = scrub_tip(landmarks)
                     draw_scrub_indicator(frame, scrubber.anchor_y, tip_y, tip_x)
@@ -439,12 +587,15 @@ def main():
     # without nonlocal gymnastics.
     paused = {"v": False}
     worker_state = {"stop": None, "thread": None}
+    # Shared pointer mode the tray menu flips; the worker reads it each frame.
+    pointer_mode = {"mode": args.pointer_mode}
 
     def start_worker():
         worker_state["stop"] = threading.Event()
         worker_state["thread"] = threading.Thread(
             target=capture_loop,
-            args=(args, show_evt, worker_state["stop"], icon, lambda: on_pause(icon, None)),
+            args=(args, show_evt, worker_state["stop"], icon,
+                  lambda: on_pause(icon, None), pointer_mode),
             daemon=True)
         worker_state["thread"].start()
 
@@ -483,6 +634,11 @@ def main():
         # triggered by the gesture rather than a click.
         icon.update_menu()
 
+    def on_toggle_trackpad(icon, item):
+        pointer_mode["mode"] = (
+            "absolute" if pointer_mode["mode"] == "relative" else "relative")
+        icon.update_menu()
+
     def on_quit(icon, item):
         stop_worker()
         icon.stop()
@@ -490,6 +646,8 @@ def main():
     menu = Menu(
         MenuItem("Show preview", on_toggle, default=True,
                  checked=lambda item: show_evt.is_set()),
+        MenuItem("Trackpad mode", on_toggle_trackpad,
+                 checked=lambda item: pointer_mode["mode"] == "relative"),
         MenuItem("Pause", on_pause,
                  checked=lambda item: paused["v"]),
         MenuItem("Quit", on_quit),
