@@ -177,7 +177,7 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
     )
 
     scrubber = VolumeScrubber(sensitivity=args.sensitivity, smoothing=args.smoothing)
-    machine = GestureStateMachine(pointer_enabled=not args.no_pointer)
+    machine = GestureStateMachine()
 
     # Hand pointer setup. Target the primary monitor for now; the Monitor is a
     # config value so a runtime monitor-switch gesture can change it later.
