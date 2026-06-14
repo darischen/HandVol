@@ -67,16 +67,21 @@ def test_pointing_up_in_idle_still_toggles_preview_not_pointer():
     assert events[-1] is Event.TOGGLE_PREVIEW
 
 
-def test_pointer_enabled_suppresses_pointing_up_and_middle_finger():
-    from handvol.state import TOGGLE_FRAMES, HOLD_SECONDS
-    import time as _time
-    sm = GestureStateMachine(pointer_enabled=True)
-    # Pointing_Up no longer toggles preview.
-    events = [sm.step(POINTING_UP) for _ in range(TOGGLE_FRAMES + 2)]
-    assert Event.TOGGLE_PREVIEW not in events
-    # A held middle finger no longer fires restart, even past the hold time.
-    sm2 = GestureStateMachine(pointer_enabled=True)
-    sm2.step(MIDDLE_FINGER)
-    sm2._middle_start_t -= HOLD_SECONDS + 1  # simulate a long hold
-    assert sm2.step(MIDDLE_FINGER) is not Event.RESTART_PC
-    assert sm2.get_hold_progress() is None
+def test_middle_finger_still_fires_restart_in_idle():
+    from handvol.state import HOLD_SECONDS
+    sm = GestureStateMachine()
+    sm.step(MIDDLE_FINGER)
+    sm._middle_start_t -= HOLD_SECONDS + 1  # simulate a long hold
+    assert sm.step(MIDDLE_FINGER) is Event.RESTART_PC
+
+
+def test_hold_timer_suppressed_only_while_pointing():
+    from handvol.state import HOLD_SECONDS
+    sm = GestureStateMachine()
+    sm.step(MIDDLE_FINGER)
+    sm._middle_start_t -= HOLD_SECONDS + 1
+    # In IDLE the restart timer shows.
+    assert sm.get_hold_progress() is not None
+    # While the cursor is live (a left click reads as a middle finger) it does not.
+    sm.state = State.POINTER
+    assert sm.get_hold_progress() is None

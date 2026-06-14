@@ -104,9 +104,10 @@ position). The tray menu's **Trackpad mode** switches to relative mapping:
 the cursor moves by hand deltas and you clutch (drop the U, reposition,
 re-make it) to cover distance, like lifting a finger off a laptop trackpad.
 
-While the pointer feature is enabled, the Pointing_Up (toggle preview) and
-middle-finger (restart/shutdown) gestures are suppressed, since those poses
-double as click poses.
+While the cursor is live (POINTER mode), the Pointing_Up and middle-finger
+poses act as click inputs rather than their usual toggle-preview and
+restart/shutdown actions. Those gestures still work normally whenever you
+are not actively pointing.
 
 On a dual-monitor setup the pointer targets the primary monitor.
 
