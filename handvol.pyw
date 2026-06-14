@@ -74,7 +74,7 @@ def parse_args():
                         "from the scroll anchor, per second (default 60)")
     p.add_argument("--scroll-invert", action="store_true",
                    help="Invert scroll direction")
-    p.add_argument("--click-engage", type=float, default=1.7,
+    p.add_argument("--click-engage", type=float, default=1.5,
                    help="Fingertip-curl ratio below which a click fires "
                         "(lower = must curl more; straight finger ~2; default 1.5)")
     p.add_argument("--click-release", type=float, default=1.7,
