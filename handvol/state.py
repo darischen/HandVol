@@ -96,7 +96,11 @@ class GestureStateMachine:
     The machine never touches audio or media directly.
     """
 
-    def __init__(self):
+    def __init__(self, pointer_enabled=False):
+        # When the hand-pointer feature is on, the Pointing_Up and middle-finger
+        # poses are the click poses, so their IDLE actions (toggle preview,
+        # restart, shutdown) are suppressed to avoid firing during clicks.
+        self.pointer_enabled = pointer_enabled
         self.state = State.IDLE
         self._ok_count = 0
         self._non_ok_count = 0
@@ -212,6 +216,8 @@ class GestureStateMachine:
 
         Used by the overlay to display a timer and action label during holds.
         """
+        if self.pointer_enabled:
+            return None
         now = time.monotonic()
         if self._middle_start_t is not None:
             return ("RESTART", now - self._middle_start_t)
@@ -225,13 +231,15 @@ class GestureStateMachine:
 
         if self.state is State.IDLE:
             now = time.monotonic()
-            if (self._middle_start_t is not None
+            # The middle-finger holds (restart/shutdown) double as the left-click
+            # pose when the pointer is on, so they are suppressed in that mode.
+            if (not self.pointer_enabled and self._middle_start_t is not None
                     and now - self._middle_start_t >= HOLD_SECONDS):
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()
                 return Event.RESTART_PC
-            if (self._double_middle_start_t is not None
+            if (not self.pointer_enabled and self._double_middle_start_t is not None
                     and now - self._double_middle_start_t >= HOLD_SECONDS):
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES
@@ -255,7 +263,7 @@ class GestureStateMachine:
                 self.state = State.POINTER
                 self._reset_counters()
                 return Event.ENTER_POINTER
-            if self._pointer_count >= TOGGLE_FRAMES:
+            if not self.pointer_enabled and self._pointer_count >= TOGGLE_FRAMES:
                 self.state = State.IDLE_COOLDOWN
                 self._cooldown_left = COOLDOWN_FRAMES
                 self._reset_counters()

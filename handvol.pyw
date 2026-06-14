@@ -74,7 +74,7 @@ def parse_args():
                         "from the scroll anchor, per second (default 60)")
     p.add_argument("--scroll-invert", action="store_true",
                    help="Invert scroll direction")
-    p.add_argument("--click-engage", type=float, default=1.5,
+    p.add_argument("--click-engage", type=float, default=1.7,
                    help="Fingertip-curl ratio below which a click fires "
                         "(lower = must curl more; straight finger ~2; default 1.5)")
     p.add_argument("--click-release", type=float, default=1.7,
@@ -177,7 +177,7 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
     )
 
     scrubber = VolumeScrubber(sensitivity=args.sensitivity, smoothing=args.smoothing)
-    machine = GestureStateMachine()
+    machine = GestureStateMachine(pointer_enabled=not args.no_pointer)
 
     # Hand pointer setup. Target the primary monitor for now; the Monitor is a
     # config value so a runtime monitor-switch gesture can change it later.
