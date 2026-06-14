@@ -147,10 +147,10 @@ def test_process_returns_move_with_no_click_for_plain_u():
 
 
 def _hook_index(hand):
-    """Mutate a hand so the index fingertip hooks (tip/dip cluster near the
-    pip), the half-bend the click detector looks for."""
-    hand[7] = LM(0.45, 0.47)   # index dip hooked back
-    hand[8] = LM(0.45, 0.46)   # index tip near the pip
+    """Mutate a hand so the index finger curls: the tip drops toward the MCP,
+    which the monotonic curl metric reads as a clear click."""
+    hand[7] = LM(0.45, 0.50)   # index dip curling down
+    hand[8] = LM(0.45, 0.54)   # index tip near the MCP
     return hand
 
 
@@ -189,6 +189,26 @@ def test_release_sends_up_for_held_button():
     hp.process(bent, t=0.033)                       # left down (held)
     ups = hp.release()
     assert ("left", "up") in ups
+
+
+def test_click_pins_cursor_within_deadzone_then_drags_past_it():
+    hp = HandPointer(_mapper_stub(), k=1.0)
+    hp.acquire()
+    hp.process(make_u_hand(), t=0.0)
+    free = hp.process(make_u_hand(), t=0.033)        # last free cursor position
+    # Click while the hand wobbles slightly (within the deadzone).
+    bent = [LM(p.x + 0.01, p.y + 0.01, p.z) for p in _hook_index(make_u_hand())]
+    down = hp.process(bent, t=0.066)
+    assert down.left_edge == "down"
+    assert down.move == free.move                     # pinned, not nudged by the bend
+    # Keep holding but move far: over a few frames the smoothed point clears
+    # the deadzone and the pin releases into a drag.
+    dragged = [LM(p.x, p.y - 0.2, p.z) for p in _hook_index(make_u_hand())]
+    a = None
+    for i in range(10):
+        a = hp.process(dragged, t=0.1 + i * 0.033)
+    assert a.left_edge is None                        # still held
+    assert a.move != down.move                        # cursor follows the drag
 
 
 def test_scroll_engage_releases_a_held_button():

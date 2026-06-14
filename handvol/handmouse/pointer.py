@@ -161,13 +161,19 @@ PointerStatus = namedtuple(
 # A straight finger is ~2; the ratio falls as the finger curls. The finger
 # reads "bent" (button down) below CURL_ENGAGE and "straight" (button up) above
 # CURL_RELEASE, with the band well under 2 so a resting finger never fires.
-CURL_ENGAGE = 1.5
+CURL_ENGAGE = 0.8
 CURL_RELEASE = 1.7
 
 # Wheel notches per unit of normalized displacement per second. Scroll is a
 # velocity: the farther the hand sits from the anchor set when scrolling began,
 # the faster it scrolls. Tunable; far lower than a per-frame increment.
 SCROLL_GAIN = 60.0
+
+# While a click is held, the cursor is pinned to where it sat just before the
+# bend. The pin releases (a drag begins) only if the hand moves more than this
+# normalized distance from the click point, so the bend's landmark wobble never
+# nudges the cursor off the target.
+CLICK_DEADZONE = 0.06
 
 
 class HandPointer:
@@ -202,6 +208,10 @@ class HandPointer:
         self._index_curl = 999.0
         self._middle_curl = 999.0
         self._thumb_ratio_value = 0.0
+        self._freeze_active = False
+        self._freeze_anchor = None
+        self._frozen_move = None
+        self._last_free_move = None
 
     def acquire(self):
         """Call when (re)entering pointer mode: reset smoothing, clutch, and
@@ -218,6 +228,10 @@ class HandPointer:
         self._sx = None
         self._sy = None
         self._scrolling = False
+        self._freeze_active = False
+        self._freeze_anchor = None
+        self._frozen_move = None
+        self._last_free_move = None
 
     def process(self, landmarks, t):
         px, py = detect.projected_point(landmarks, k=self.k)
@@ -269,6 +283,26 @@ class HandPointer:
 
         move = self.mapper.map((sx, sy), self._just_acquired)
         self._just_acquired = False
+
+        # Click stabilization: pin the cursor where it sat just before the bend
+        # so the click lands precisely, releasing into a drag only past a
+        # deadzone.
+        held = self._left_down or self._right_down
+        if (left_edge == "down" or right_edge == "down") and not self._freeze_active:
+            self._freeze_active = True
+            self._freeze_anchor = (sx, sy)
+            self._frozen_move = self._last_free_move or move
+        if self._freeze_active:
+            if not held:
+                self._freeze_active = False
+            else:
+                d = math.hypot(sx - self._freeze_anchor[0], sy - self._freeze_anchor[1])
+                if d < CLICK_DEADZONE:
+                    move = self._frozen_move
+                else:
+                    self._freeze_active = False  # deliberate drag; cursor follows
+        if not held:
+            self._last_free_move = move
         return PointerAction(move, left_edge, right_edge, 0)
 
     def _edge(self, trigger, value, button):
