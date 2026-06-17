@@ -229,6 +229,7 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
     last_t = time.monotonic()
     last_state = None
     window_open = False
+    window_just_opened = False
     last_rendered_vol = None
     locked = False
 
@@ -529,7 +530,14 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
                     draw_scrub_indicator(frame, scrubber.anchor_y, tip_y, tip_x)
                 draw_fps(frame, fps)
                 cv2.imshow(WINDOW_TITLE, frame)
-                window_open = True
+                if not window_open:
+                    window_open = True
+                    window_just_opened = True
+                # Bring window to top on first frame (without persistent always-on-top flag)
+                if window_just_opened:
+                    cv2.setWindowProperty(WINDOW_TITLE, cv2.WND_PROP_TOPMOST, 1)
+                    cv2.setWindowProperty(WINDOW_TITLE, cv2.WND_PROP_TOPMOST, 0)
+                    window_just_opened = False
                 # Esc inside the window or clicking X closes the window and clears the flag
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27:  # Esc
@@ -543,6 +551,7 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
                 # waitKey is needed for destroyWindow to actually process on some builds
                 cv2.waitKey(1)
                 window_open = False
+                window_just_opened = False
 
             if machine.state != last_state or event is not Event.NONE:
                 if args.debug or event in (
