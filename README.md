@@ -137,10 +137,18 @@ overflow on a fresh Windows install — drag it onto the taskbar to pin).
 
 - **Left-click the tray icon** → toggle the OpenCV preview window on/off.
 - **Right-click** → menu with *Show preview* (checked when visible),
-  *Pause* (releases the camera; useful before joining a virtual meeting),
+  *Camera* (see below), *Pause* (releases the camera; useful before joining a virtual meeting),
   and *Quit*.
+- **Camera submenu** lists every camera. Your choice is remembered in
+  `%APPDATA%\HandVol\settings.json`, except virtual cameras: those must be
+  re-picked each launch. *Refresh list* rescans after you plug in a camera or
+  connect a phone. Clicking the checked camera again retries it after a failure.
 - **Esc** inside the preview window also hides it.
 - To quit, use the tray's *Quit* item (or kill `pythonw.exe` from Task Manager).
+
+Windows Phone Link registers a "Windows Virtual Camera" that stays listed after
+the phone disconnects. Whenever no non-virtual saved choice exists, HandVol skips
+cameras whose name contains "Virtual Camera" and starts on the first other one.
 
 By default it starts tray-only (no window). Pass `--show` to launch with
 the preview already open.
@@ -156,7 +164,7 @@ the full 3.0 seconds.
 |---|---|
 | `--sensitivity 80` | Volume points per full-frame vertical travel. Higher = faster scrub. |
 | `--smoothing 0.3` | EMA factor on pinch position. Lower = laggier, higher = jitterier. |
-| `--cam 0` | Webcam index, if you have more than one. |
+| `--cam 0` | Webcam index. Overrides the camera saved from the tray menu. |
 | `--debug` | Print frame-by-frame state and scrub values. |
 | `--no-audio` | Skip all pycaw/media calls — overlay only, for tuning. |
 | `--show` | Start with the preview window already open (otherwise tray-only). |
@@ -263,9 +271,11 @@ webcam.
 
 ## Troubleshooting
 
-- **`Could not open camera index 0`** — another app has the camera, or
-  Windows Camera privacy settings are blocking desktop apps. Try
-  `--cam 1`.
+- **`Could not open camera index 0`**, or a dimmed tray icon while *Pause* is
+  unchecked — the camera failed to open or stopped delivering frames. Another
+  app has the camera, or Windows Camera privacy settings are blocking desktop
+  apps. Pick a different source from the tray *Camera* submenu, or click the
+  checked one to retry.
 - **`AudioDevice has no attribute Activate`** — pycaw version mismatch.
   The code handles both old and new pycaw via `_dev` fallback; make
   sure you're on the version pinned in `requirements.txt`.

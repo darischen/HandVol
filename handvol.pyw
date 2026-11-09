@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import subprocess
 import threading
 import time
@@ -7,9 +8,9 @@ from collections import deque
 from PIL import Image, ImageDraw, ImageFont
 from pystray import Icon, Menu, MenuItem
 
-from handvol import audio, media, spotify, taskbar, vscode, shortcuts
+from handvol import audio, cameras, media, settings, spotify, taskbar, vscode, shortcuts
 from handvol import discord as discord_app
-from handvol.capture import GestureSource, MODEL_PATH
+from handvol.capture import CameraOpenError, GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
 from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS, NUMBER_9, NUMBER_6
 from handvol.voice_search import VoiceSearch
@@ -45,7 +46,8 @@ def parse_args():
                    help="Volume points per full-frame vertical travel (default 80)")
     p.add_argument("--smoothing", type=float, default=0.3,
                    help="EMA factor on tip Y; lower=lag, higher=jitter (default 0.3)")
-    p.add_argument("--cam", type=int, default=0, help="Webcam index (default 0)")
+    p.add_argument("--cam", type=int, default=None,
+                   help="Webcam index; overrides the camera saved from the tray menu")
     p.add_argument("--debug", action="store_true",
                    help="Print frame-by-frame state + values")
     p.add_argument("--no-audio", action="store_true",
@@ -163,7 +165,17 @@ def make_mic_image():
     return img
 
 
-def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode):
+def set_dimmed_icon(icon, no_audio):
+    """Show the current volume in the dimmed glyph (paused, or camera down)."""
+    try:
+        vol = 0 if no_audio else int(round(audio.get_volume()))
+    except Exception:
+        vol = 0
+    icon.icon = make_volume_image(vol, dimmed=True)
+
+
+def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode,
+                 camera):
     """Runs on a worker thread. Owns the camera, the model, and (when toggled
     on) the OpenCV window. cv2 + overlay are imported here so we only pay the
     cost when the worker actually starts. worker_stop is signaled both for
@@ -251,10 +263,21 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
             print(f"  voice search done: {result}")
         voice_done_evt.set()
 
-    with GestureSource(cam_index=args.cam) as source:
+    # Snapshot the index: the tray may repoint camera["index"] while we run.
+    cam_index = camera["index"]
+    stack = contextlib.ExitStack()
+    try:
+        source = stack.enter_context(GestureSource(cam_index=cam_index))
+    except CameraOpenError as exc:
+        print(f"[handvol] could not open camera {cam_index}: {exc}")
+        set_dimmed_icon(icon, args.no_audio)
+        return
+    frames_lost = False
+    with stack:
         while not worker_stop.is_set():
             frame, latest = source.read()
             if frame is None:
+                frames_lost = not worker_stop.is_set()
                 break
 
             # Apply a tray-requested pointer-mode switch by rebuilding the
@@ -577,6 +600,12 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
     if window_open:
         cv2.destroyAllWindows()
 
+    if frames_lost:
+        # The device died or was unplugged mid-stream. Dim the glyph so the
+        # icon does not look live while no worker is reading frames.
+        print(f"[handvol] camera {cam_index} stopped delivering frames")
+        set_dimmed_icon(icon, args.no_audio)
+
 
 def main():
     args = parse_args()
@@ -598,14 +627,48 @@ def main():
     worker_state = {"stop": None, "thread": None}
     # Shared pointer mode the tray menu flips; the worker reads it each frame.
     pointer_mode = {"mode": args.pointer_mode}
+    # Shared camera holder: `names` is the DirectShow list, `index` the source
+    # the worker opens on (re)start.
+    cam_names = cameras.list_cameras()
+    camera = {
+        "names": cam_names,
+        "index": cameras.choose_camera(
+            cam_names, settings.load().get("camera_name"), args.cam),
+    }
+    _cam_label = (cam_names[camera["index"]]
+                  if 0 <= camera["index"] < len(cam_names) else "?")
+    print(f"[handvol] camera: {camera['index']} {_cam_label}")
 
     def start_worker():
-        worker_state["stop"] = threading.Event()
-        worker_state["thread"] = threading.Thread(
-            target=capture_loop,
-            args=(args, show_evt, worker_state["stop"], icon,
-                  lambda: on_pause(icon, None), pointer_mode),
-            daemon=True)
+        prev = worker_state["thread"]
+        # Invariant: every replaced stop event is set, so a superseded worker
+        # always winds down (or never opens its camera) even if no one joins it.
+        if worker_state["stop"] is not None:
+            worker_state["stop"].set()
+        stop = threading.Event()
+        worker_state["stop"] = stop
+
+        def request_pause():
+            # Gesture pause from this worker. Ignore it when this worker is
+            # already superseded (a tray change is in progress) or the app is
+            # already paused, so a stale gesture never toggles pause back off.
+            if stop.is_set() or paused["v"]:
+                return
+            on_pause(icon, None)
+
+        def run():
+            # Wait for the previous worker to release the camera. This runs on
+            # the new worker thread, never on the tray thread.
+            if prev is not None and prev.is_alive():
+                prev.join()
+            # Superseded while waiting (rapid switch, or paused meanwhile):
+            # exit without opening the camera.
+            if stop.is_set() or paused["v"]:
+                return
+            capture_loop(args, show_evt, stop, icon, request_pause,
+                         pointer_mode, camera)
+
+        worker_state["thread"] = threading.Thread(target=run, daemon=True)
         worker_state["thread"].start()
 
     def stop_worker():
@@ -627,21 +690,76 @@ def main():
     def on_pause(icon, item):
         if paused["v"]:
             paused["v"] = False
+            refresh_cameras()
             start_worker()
         else:
             paused["v"] = True
             # Close the preview too — camera is going away anyway.
             show_evt.clear()
             stop_worker()
-            try:
-                vol = 0 if args.no_audio else int(round(audio.get_volume()))
-            except Exception:
-                vol = 0
-            icon.icon = make_volume_image(vol, dimmed=True)
+            set_dimmed_icon(icon, args.no_audio)
         # Force pystray to re-evaluate the `checked` lambdas. Without this, the
         # tray menu's check state can lag behind paused["v"] when the flip was
         # triggered by the gesture rather than a click.
         icon.update_menu()
+
+    def refresh_cameras():
+        """Rescan cameras. Keeps the selected camera by name when it is still
+        listed (its index may have shifted). If it vanished, falls back to
+        choose_camera on the new list. Never restarts the worker."""
+        old = camera["names"]
+        current = old[camera["index"]] if 0 <= camera["index"] < len(old) else None
+        new = cameras.list_cameras()
+        if current is not None:
+            i = cameras.resolve_index(new, current)
+            camera["index"] = i if i is not None else cameras.choose_camera(new)
+        camera["names"] = new
+        icon.update_menu()
+
+    def on_refresh_cameras(icon, item):
+        refresh_cameras()
+
+    def select_camera(name):
+        # Re-enumerate so the index matches the device the user clicked, even
+        # if the menu was built before a device was added or removed.
+        # refresh_cameras also remaps camera["index"] onto the new list, so
+        # the checkmark and the same-camera comparison below stay correct.
+        refresh_cameras()
+        i = cameras.resolve_index(camera["names"], name)
+        if i is None:
+            icon.update_menu()  # device is gone; show the fresh list
+            return
+        thread = worker_state["thread"]
+        running = thread is not None and thread.is_alive() and not paused["v"]
+        if i == camera["index"] and running:
+            icon.update_menu()
+            return
+        # A click on the checked item lands here too when its worker died
+        # (open failure or lost frames), which retries the camera.
+        camera["index"] = i
+        settings.update({"camera_name": name})
+        if not paused["v"]:
+            # No join here: start_worker sets the old stop event and the new
+            # worker waits for the old one off the tray thread.
+            start_worker()
+        icon.update_menu()
+
+    def make_select(name):
+        return lambda icon, item: select_camera(name)
+
+    def camera_items():
+        items = [
+            # Win32 menus treat "&" as a mnemonic prefix; "&&" shows a literal "&".
+            MenuItem(name.replace("&", "&&"), make_select(name),
+                     checked=lambda item, i=i: camera["index"] == i,
+                     radio=True)
+            for i, name in enumerate(camera["names"])
+        ]
+        if not items:
+            items.append(MenuItem("No cameras found", None, enabled=False))
+        items.append(Menu.SEPARATOR)
+        items.append(MenuItem("Refresh list", on_refresh_cameras))
+        return items
 
     def on_toggle_trackpad(icon, item):
         pointer_mode["mode"] = (
@@ -657,6 +775,7 @@ def main():
                  checked=lambda item: show_evt.is_set()),
         MenuItem("Trackpad mode", on_toggle_trackpad,
                  checked=lambda item: pointer_mode["mode"] == "relative"),
+        MenuItem("Camera", Menu(camera_items)),
         MenuItem("Pause", on_pause,
                  checked=lambda item: paused["v"]),
         MenuItem("Quit", on_quit),

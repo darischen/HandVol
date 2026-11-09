@@ -205,6 +205,10 @@ def _resolve_hand(landmarks, handedness, mp_name, mp_score):
     return mp_name, mp_score
 
 
+class CameraOpenError(RuntimeError):
+    """The requested camera could not be opened."""
+
+
 class GestureSource:
     """Webcam + MediaPipe GestureRecognizer in LIVE_STREAM mode.
 
@@ -273,7 +277,9 @@ class GestureSource:
     def open(self):
         self._cap = cv2.VideoCapture(self.cam_index, cv2.CAP_DSHOW)
         if not self._cap.isOpened():
-            raise RuntimeError(f"Could not open camera index {self.cam_index}")
+            self._cap.release()
+            self._cap = None
+            raise CameraOpenError(f"Could not open camera index {self.cam_index}")
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
