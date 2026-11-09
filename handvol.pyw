@@ -722,9 +722,10 @@ def main():
     def select_camera(name):
         # Re-enumerate so the index matches the device the user clicked, even
         # if the menu was built before a device was added or removed.
-        names = cameras.list_cameras()
-        camera["names"] = names
-        i = cameras.resolve_index(names, name)
+        # refresh_cameras also remaps camera["index"] onto the new list, so
+        # the checkmark and the same-camera comparison below stay correct.
+        refresh_cameras()
+        i = cameras.resolve_index(camera["names"], name)
         if i is None:
             icon.update_menu()  # device is gone; show the fresh list
             return
