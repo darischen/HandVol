@@ -51,3 +51,53 @@ def test_list_cameras_returns_empty_list_when_enumeration_raises(monkeypatch, ca
     monkeypatch.setattr(cameras, "_enumerate_dshow", boom)
     assert cameras.list_cameras() == []
     assert "camera enumeration failed" in capsys.readouterr().out
+
+
+def test_choose_camera_ignores_saved_virtual_camera():
+    names = ["Phone (Windows Virtual Camera)", "NexiGo N60 FHD Webcam"]
+    assert cameras.choose_camera(
+        names, saved_name="Phone (Windows Virtual Camera)") == 1
+
+
+def test_choose_camera_cli_index_wins_over_saved_virtual_camera():
+    names = ["Phone (Windows Virtual Camera)", "NexiGo N60 FHD Webcam"]
+    assert cameras.choose_camera(
+        names, saved_name="Phone (Windows Virtual Camera)", cli_index=0) == 0
+
+
+def test_resolve_index_returns_first_match():
+    assert cameras.resolve_index(["A", "Cam", "Cam"], "Cam") == 1
+
+
+def test_resolve_index_returns_none_when_absent():
+    assert cameras.resolve_index(["A", "B"], "Gone") is None
+
+
+def test_resolve_index_empty_list_returns_none():
+    assert cameras.resolve_index([], "A") is None
+
+
+def test_enumerate_dshow_keeps_index_alignment_when_a_name_read_fails(monkeypatch):
+    import comtypes
+
+    monikers = ["m0", "m1", "m2"]
+
+    def fake_friendly_name(moniker):
+        if moniker == "m1":
+            raise comtypes.COMError(-2147467259, "unreadable", None)
+        return {"m0": "Webcam A", "m2": "Webcam C"}[moniker]
+
+    monkeypatch.setattr(cameras, "_monikers", lambda: monikers)
+    monkeypatch.setattr(cameras, "_friendly_name", fake_friendly_name)
+    assert cameras._enumerate_dshow() == ["Webcam A", "Camera 1", "Webcam C"]
+
+
+def test_enumerate_dshow_all_names_unreadable(monkeypatch):
+    import comtypes
+
+    def boom(moniker):
+        raise comtypes.COMError(-2147467259, "unreadable", None)
+
+    monkeypatch.setattr(cameras, "_monikers", lambda: ["m0", "m1"])
+    monkeypatch.setattr(cameras, "_friendly_name", boom)
+    assert cameras._enumerate_dshow() == ["Camera 0", "Camera 1"]
