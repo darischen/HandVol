@@ -137,10 +137,16 @@ overflow on a fresh Windows install — drag it onto the taskbar to pin).
 
 - **Left-click the tray icon** → toggle the OpenCV preview window on/off.
 - **Right-click** → menu with *Show preview* (checked when visible),
-  *Pause* (releases the camera; useful before joining a virtual meeting),
+  *Camera* (see below), *Pause* (releases the camera; useful before joining a virtual meeting),
   and *Quit*.
+- **Camera submenu** lists every camera. Your choice is remembered in
+  `%APPDATA%\HandVol\settings.json`. *Refresh list* rescans after you plug in
+  a camera or connect a phone.
 - **Esc** inside the preview window also hides it.
 - To quit, use the tray's *Quit* item (or kill `pythonw.exe` from Task Manager).
+
+Windows Phone Link registers a "Windows Virtual Camera" that stays listed after
+the phone disconnects. HandVol skips virtual cameras on first run.
 
 By default it starts tray-only (no window). Pass `--show` to launch with
 the preview already open.
@@ -156,7 +162,7 @@ the full 3.0 seconds.
 |---|---|
 | `--sensitivity 80` | Volume points per full-frame vertical travel. Higher = faster scrub. |
 | `--smoothing 0.3` | EMA factor on pinch position. Lower = laggier, higher = jitterier. |
-| `--cam 0` | Webcam index, if you have more than one. |
+| `--cam 0` | Webcam index. Overrides the camera saved from the tray menu. |
 | `--debug` | Print frame-by-frame state and scrub values. |
 | `--no-audio` | Skip all pycaw/media calls — overlay only, for tuning. |
 | `--show` | Start with the preview window already open (otherwise tray-only). |

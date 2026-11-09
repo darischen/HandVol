@@ -7,7 +7,7 @@ from collections import deque
 from PIL import Image, ImageDraw, ImageFont
 from pystray import Icon, Menu, MenuItem
 
-from handvol import audio, media, spotify, taskbar, vscode, shortcuts
+from handvol import audio, cameras, media, settings, spotify, taskbar, vscode, shortcuts
 from handvol import discord as discord_app
 from handvol.capture import GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
@@ -45,7 +45,8 @@ def parse_args():
                    help="Volume points per full-frame vertical travel (default 80)")
     p.add_argument("--smoothing", type=float, default=0.3,
                    help="EMA factor on tip Y; lower=lag, higher=jitter (default 0.3)")
-    p.add_argument("--cam", type=int, default=0, help="Webcam index (default 0)")
+    p.add_argument("--cam", type=int, default=None,
+                   help="Webcam index; overrides the camera saved from the tray menu")
     p.add_argument("--debug", action="store_true",
                    help="Print frame-by-frame state + values")
     p.add_argument("--no-audio", action="store_true",
@@ -163,7 +164,8 @@ def make_mic_image():
     return img
 
 
-def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode):
+def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode,
+                 camera):
     """Runs on a worker thread. Owns the camera, the model, and (when toggled
     on) the OpenCV window. cv2 + overlay are imported here so we only pay the
     cost when the worker actually starts. worker_stop is signaled both for
@@ -251,7 +253,7 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode)
             print(f"  voice search done: {result}")
         voice_done_evt.set()
 
-    with GestureSource(cam_index=args.cam) as source:
+    with GestureSource(cam_index=camera["index"]) as source:
         while not worker_stop.is_set():
             frame, latest = source.read()
             if frame is None:
@@ -598,13 +600,24 @@ def main():
     worker_state = {"stop": None, "thread": None}
     # Shared pointer mode the tray menu flips; the worker reads it each frame.
     pointer_mode = {"mode": args.pointer_mode}
+    # Shared camera holder: `names` is the DirectShow list, `index` the source
+    # the worker opens on (re)start.
+    cam_names = cameras.list_cameras()
+    camera = {
+        "names": cam_names,
+        "index": cameras.choose_camera(
+            cam_names, settings.load().get("camera_name"), args.cam),
+    }
+    _cam_label = (cam_names[camera["index"]]
+                  if 0 <= camera["index"] < len(cam_names) else "?")
+    print(f"[handvol] camera: {camera['index']} {_cam_label}")
 
     def start_worker():
         worker_state["stop"] = threading.Event()
         worker_state["thread"] = threading.Thread(
             target=capture_loop,
             args=(args, show_evt, worker_state["stop"], icon,
-                  lambda: on_pause(icon, None), pointer_mode),
+                  lambda: on_pause(icon, None), pointer_mode, camera),
             daemon=True)
         worker_state["thread"].start()
 
@@ -627,6 +640,7 @@ def main():
     def on_pause(icon, item):
         if paused["v"]:
             paused["v"] = False
+            refresh_cameras()
             start_worker()
         else:
             paused["v"] = True
@@ -643,6 +657,48 @@ def main():
         # triggered by the gesture rather than a click.
         icon.update_menu()
 
+    def refresh_cameras():
+        """Rescan cameras. Keeps the selected camera by name when it is still
+        listed (its index may have shifted); never restarts the worker."""
+        old = camera["names"]
+        current = old[camera["index"]] if 0 <= camera["index"] < len(old) else None
+        new = cameras.list_cameras()
+        if current is not None and current in new:
+            camera["index"] = new.index(current)
+        camera["names"] = new
+        icon.update_menu()
+
+    def on_refresh_cameras(icon, item):
+        refresh_cameras()
+
+    def select_camera(i):
+        if i == camera["index"]:
+            return
+        camera["index"] = i
+        names = camera["names"]
+        if 0 <= i < len(names):
+            settings.update({"camera_name": names[i]})
+        if not paused["v"]:
+            stop_worker()
+            start_worker()
+        icon.update_menu()
+
+    def make_select(i):
+        return lambda icon, item: select_camera(i)
+
+    def camera_items():
+        items = [
+            MenuItem(name, make_select(i),
+                     checked=lambda item, i=i: camera["index"] == i,
+                     radio=True)
+            for i, name in enumerate(camera["names"])
+        ]
+        if not items:
+            items.append(MenuItem("No cameras found", None, enabled=False))
+        items.append(Menu.SEPARATOR)
+        items.append(MenuItem("Refresh list", on_refresh_cameras))
+        return items
+
     def on_toggle_trackpad(icon, item):
         pointer_mode["mode"] = (
             "absolute" if pointer_mode["mode"] == "relative" else "relative")
@@ -657,6 +713,7 @@ def main():
                  checked=lambda item: show_evt.is_set()),
         MenuItem("Trackpad mode", on_toggle_trackpad,
                  checked=lambda item: pointer_mode["mode"] == "relative"),
+        MenuItem("Camera", Menu(camera_items)),
         MenuItem("Pause", on_pause,
                  checked=lambda item: paused["v"]),
         MenuItem("Quit", on_quit),
