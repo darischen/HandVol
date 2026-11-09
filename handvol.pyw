@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import subprocess
 import threading
 import time
@@ -9,7 +10,7 @@ from pystray import Icon, Menu, MenuItem
 
 from handvol import audio, cameras, media, settings, spotify, taskbar, vscode, shortcuts
 from handvol import discord as discord_app
-from handvol.capture import GestureSource, MODEL_PATH
+from handvol.capture import CameraOpenError, GestureSource, MODEL_PATH
 from handvol.scrubber import VolumeScrubber
 from handvol.state import GestureStateMachine, State, Event, HOLD_SECONDS, NUMBER_9, NUMBER_6
 from handvol.voice_search import VoiceSearch
@@ -253,7 +254,18 @@ def capture_loop(args, show_evt, worker_stop, icon, request_pause, pointer_mode,
             print(f"  voice search done: {result}")
         voice_done_evt.set()
 
-    with GestureSource(cam_index=camera["index"]) as source:
+    stack = contextlib.ExitStack()
+    try:
+        source = stack.enter_context(GestureSource(cam_index=camera["index"]))
+    except CameraOpenError as exc:
+        print(f"[handvol] could not open camera {camera['index']}: {exc}")
+        try:
+            vol = 0 if args.no_audio else int(round(audio.get_volume()))
+        except Exception:
+            vol = 0
+        icon.icon = make_volume_image(vol, dimmed=True)
+        return
+    with stack:
         while not worker_stop.is_set():
             frame, latest = source.read()
             if frame is None:
@@ -613,9 +625,18 @@ def main():
     print(f"[handvol] camera: {camera['index']} {_cam_label}")
 
     def start_worker():
+        prev = worker_state["thread"]
         worker_state["stop"] = threading.Event()
+
+        def run(*a):
+            # Wait for the previous worker to release the camera. This runs on
+            # the new worker thread, never on the tray thread.
+            if prev is not None and prev.is_alive():
+                prev.join()
+            capture_loop(*a)
+
         worker_state["thread"] = threading.Thread(
-            target=capture_loop,
+            target=run,
             args=(args, show_evt, worker_state["stop"], icon,
                   lambda: on_pause(icon, None), pointer_mode, camera),
             daemon=True)
